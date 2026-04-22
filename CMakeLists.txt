@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
-project(my-fantastic-simulation-code LANGUAGES C CXX VERSION 0.1)
+project(HPC_Fluid_Solver LANGUAGES C CXX VERSION 0.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
