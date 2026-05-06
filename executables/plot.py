@@ -64,7 +64,7 @@ class AnimationType(Enum):
 
 if __name__ == "__main__":
     width, height = 32, 32
-    animation_type = AnimationType.arrows
+    animation_type = AnimationType.magnitude
     files_x = sorted(glob.glob("outputs/v_x_*.bin"))
     files_y = sorted(glob.glob("outputs/v_y_*.bin"))
     frames_x = [np.fromfile(file, dtype=np.float32).reshape((width, height)) for file in files_x]
@@ -80,3 +80,9 @@ if __name__ == "__main__":
         )
     elif animation_type == AnimationType.magnitude:
         anim = animate_magnitude()
+        anim.save(
+            "lbm_velocity.mp4",
+            writer="ffmpeg",
+            fps=20,
+            dpi=200
+        )
