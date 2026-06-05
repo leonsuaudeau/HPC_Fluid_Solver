@@ -69,12 +69,26 @@ void relaxation(
     }
 }
 
-inline float sinusoidal(const int x, const float n_inv, const float epsilon) {
-    return epsilon * sinf(2.0f * 3.14159265359f * static_cast<float>(x) * n_inv);
+inline float sinusoidal(const int x, const float epsilon, const float k) {
+    return epsilon * sinf(k * static_cast<float>(x));
 }
 
+KOKKOS_INLINE_FUNCTION
+float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, const float k) {
+    const int n_x = static_cast<int>(v_x.extent(0));
+    const int n_y = static_cast<int>(v_y.extent(1));
+    const float n_x_inv = 1.0f / static_cast<float>(n_x);
+    const float n_y_inv = 1.0f / static_cast<float>(n_y);
+
+    float sum = 0.0f;
+
+    for (int x = 0; x < n_x; x++) {
+        for (int y = 0; y < n_y; y++) {
+            sum += v_x(x, y) * sinf(k * static_cast<float>(y));
+        }
+    }
+    return sum * n_x_inv * n_y_inv * 2.0f;
+}
 }
 
 #endif // HPC_FLUID_SOLVER_EQUATIONS_H
-
-
