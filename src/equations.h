@@ -49,6 +49,23 @@ void streaming(
 }
 
 KOKKOS_INLINE_FUNCTION
+void streaming_with_boundaries(
+    const Distribution_t &f, const Distribution_t &f_new,
+    const iVec &c_x, const iVec &c_y, const Grid_Mask &sf_mask, const iVec &opposite_i,
+    const int x, const int y, const int grid_width, const int grid_height) {
+    for (int i = 0; i < 9; i++) {
+        const int x_old = wrap(x - c_x(i), grid_width);
+        const int y_old = wrap(y - c_y(i), grid_height);
+
+        if (sf_mask(x_old, y_old) == 1) {
+            f_new(x, y, i) = f(x, y, opposite_i(i));
+        }else {
+            f_new(x, y, i) = f(x_old, y_old, i);
+        }
+    }
+}
+
+KOKKOS_INLINE_FUNCTION
 float calculate_eq_distrib(
     const float rho_cell, const float v_x_cell,
     const float v_y_cell, const int c_x_i,

@@ -50,6 +50,21 @@ Vec w_host_init(const Vec &w_device) {
     Kokkos::deep_copy(w_device, w_host);
     return w_host;
 }
+
+iVec opposite_i_host_init(const iVec &opposite_i_device) {
+    auto opposite_i_host = Kokkos::create_mirror_view(opposite_i_device);
+    opposite_i_host[0] = 0;
+    opposite_i_host[1] = 3;
+    opposite_i_host[2] = 4;
+    opposite_i_host[3] = 1;
+    opposite_i_host[4] = 2;
+    opposite_i_host[5] = 7;
+    opposite_i_host[6] = 8;
+    opposite_i_host[7] = 5;
+    opposite_i_host[8] = 6;
+    Kokkos::deep_copy(opposite_i_device, opposite_i_host);
+    return opposite_i_host;
+}
 }
 
 #endif // HPC_FLUID_SOLVER_D2Q9_INIT_H

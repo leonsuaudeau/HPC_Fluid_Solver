@@ -12,6 +12,30 @@ def plot_single():
     plt.colorbar()
     plt.show()
 
+def plot_single_stream():
+    x, y = np.meshgrid(np.arange(0, height), np.arange(0, width))
+    plt.streamplot(
+        x, y, frames_y[10], frames_x[10], density=1.2, linewidth=1, arrowsize=1,
+    )
+
+    plt.gca().invert_yaxis()
+    plt.show()
+
+def animate_stream():
+    x, y = np.meshgrid(np.arange(0, height), np.arange(0, width))
+    fig, ax = plt.subplots()
+
+    def update_frame(frame_idx):
+        ax.clear()
+        u = frames_x[frame_idx]
+        v = frames_y[frame_idx]
+        stream = ax.streamplot(x, y, u, v, density=1.2, linewidth=1, arrowsize=1,)
+        return [stream.lines, stream.arrows]
+
+    anim = animation.FuncAnimation(fig, update_frame, frames=len(frames_x), interval=frame_count, blit=False)
+    plt.show()
+    return anim
+
 def animate_arrows(skip, scale):
     X, Y = np.meshgrid(
         np.arange(0, height, skip),
@@ -39,7 +63,7 @@ def animate_arrows(skip, scale):
         )
         return [q]
 
-    anim = animation.FuncAnimation(fig, update_frame, frames=len(frames_x), interval=100, blit=True)
+    anim = animation.FuncAnimation(fig, update_frame, frames=len(frames_x), interval=frame_count, blit=True)
     plt.show()
     return anim
 
@@ -54,16 +78,18 @@ def animate_magnitude():
         im.set_array(mag)
         return [im]
 
-    anim = animation.FuncAnimation(fig, update_frame, frames=len(frames_x), interval=100, blit=True)
+    anim = animation.FuncAnimation(fig, update_frame, frames=len(frames_x), interval=frame_count, blit=True)
     plt.show()
     return anim
 
 class AnimationType(Enum):
     arrows = 0
     magnitude = 1
+    stream = 2
 
 if __name__ == "__main__":
     width, height = 32, 32
+    frame_count = 50
     animation_type = AnimationType.magnitude
     files_x = sorted(glob.glob("outputs/v_x_*.bin"))
     files_y = sorted(glob.glob("outputs/v_y_*.bin"))
@@ -71,7 +97,7 @@ if __name__ == "__main__":
     frames_y = [np.fromfile(file, dtype=np.float32).reshape((width, height)) for file in files_y]
 
     if animation_type == AnimationType.arrows:
-        anim = animate_arrows(1, 50)
+        anim = animate_arrows(1, 5)
         anim.save(
             "lbm_velocity.mp4",
             writer="ffmpeg",
@@ -80,6 +106,14 @@ if __name__ == "__main__":
         )
     elif animation_type == AnimationType.magnitude:
         anim = animate_magnitude()
+        anim.save(
+            "lbm_velocity.mp4",
+            writer="ffmpeg",
+            fps=20,
+            dpi=200
+        )
+    elif animation_type == AnimationType.stream:
+        anim = animate_stream()
         anim.save(
             "lbm_velocity.mp4",
             writer="ffmpeg",

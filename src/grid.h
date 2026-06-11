@@ -1,5 +1,6 @@
 #ifndef HPC_FLUID_SOLVER_GRID_H
 #define HPC_FLUID_SOLVER_GRID_H
+#include <vector>
 
 struct Grid {
     Grid(int width, int height);
