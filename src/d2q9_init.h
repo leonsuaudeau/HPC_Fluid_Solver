@@ -9,14 +9,14 @@ namespace d2q9 {
 iVec c_x_host_init(const iVec& c_x_device) {
     const auto c_x_host = Kokkos::create_mirror_view(c_x_device);
     c_x_host(0) = 0;
-    c_x_host(1) = 0;
-    c_x_host(2) = 1;
-    c_x_host(3) = 0;
-    c_x_host(4) = -1;
+    c_x_host(1) = 1;
+    c_x_host(2) = 0;
+    c_x_host(3) = -1;
+    c_x_host(4) = 0;
     c_x_host(5) = 1;
-    c_x_host(6) = 1;
+    c_x_host(6) = -1;
     c_x_host(7) = -1;
-    c_x_host(8) = -1;
+    c_x_host(8) = 1;
     Kokkos::deep_copy(c_x_device, c_x_host);
     return c_x_host;
 }
@@ -24,14 +24,14 @@ iVec c_x_host_init(const iVec& c_x_device) {
 iVec c_y_host_init(const iVec &c_y_device) {
     const auto c_y_host = Kokkos::create_mirror_view(c_y_device);
     c_y_host(0) = 0;
-    c_y_host(1) = 1;
-    c_y_host(2) = 0;
-    c_y_host(3) = -1;
-    c_y_host(4) = 0;
+    c_y_host(1) = 0;
+    c_y_host(2) = 1;
+    c_y_host(3) = 0;
+    c_y_host(4) = -1;
     c_y_host(5) = 1;
-    c_y_host(6) = -1;
+    c_y_host(6) = 1;
     c_y_host(7) = -1;
-    c_y_host(8) = 1;
+    c_y_host(8) = -1;
     Kokkos::deep_copy(c_y_device, c_y_host);
     return c_y_host;
 }

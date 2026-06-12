@@ -8,7 +8,7 @@
 #include <iostream>
 #include <mpi.h>
 
-App::App() : grid(32, 32) {
+App::App() : grid(128, 128) {
 }
 
 int App::run(int argc, char *argv[]) {
@@ -50,14 +50,16 @@ int App::run(int argc, char *argv[]) {
                 v_y_host(x, y) = 0.0f;
                 sf_mask_host(x, y) = 0; // fluid
 
-                if (x == 15 && y == 15) {
-                    rho_host(x, y) = 10.0f;
+                /*
+                if (x == grid.width / 2 && y == grid.height / 2) {
+                    rho_host(x, y) = 1.0f;
                 }
+                */
 
-                if (y == 4) sf_mask_host(x, y) = 1;
-                if (y == 28) sf_mask_host(x, y) = 1;
-                if (x == 4) sf_mask_host(x, y) = 1;
-                if (x == 28) sf_mask_host(x, y) = 1;
+                if (y == 0) sf_mask_host(x, y) = 1;
+                if (y == grid.height - 1) sf_mask_host(x, y) = 2;
+                if (x == 0) sf_mask_host(x, y) = 1;
+                if (x == grid.width - 1) sf_mask_host(x, y) = 1;
 
                 for (int i = 0; i < 9; i++) {
                     f_host(x, y, i) = eq::calculate_eq_distrib(rho_host(x, y), v_x_host(x, y), v_y_host(x, y), c_x_host(i), c_y_host(i), w_host(i));
@@ -78,14 +80,13 @@ int App::run(int argc, char *argv[]) {
                 KOKKOS_LAMBDA(const int x, const int y) {
                 eq::update_density(rho, f, x, y);
                 eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
-                const float omega = 1.0f / static_cast<float>(2) * 2.0f;
-                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
+                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
             });
 
             Kokkos::parallel_for("streaming step",
                 Kokkos::MDRangePolicy({0,0}, {grid.width, grid.height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries(f, f_new, c_x, c_y, sf_mask, opposite_i, x, y, grid.width, grid.height);
+                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, sf_mask, opposite_i, x, y, grid.width, grid.height);
             });
 
             // TODO: perhaps separate streaming and boundary handling

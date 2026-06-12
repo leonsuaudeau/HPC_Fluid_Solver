@@ -38,8 +38,8 @@ def animate_stream():
 
 def animate_arrows(skip, scale):
     X, Y = np.meshgrid(
-        np.arange(0, height, skip),
-        np.arange(0, width, skip)
+        np.arange(0, width, skip),
+        np.arange(0, height, skip), indexing="xy"
     )
 
     fig, ax = plt.subplots()
@@ -47,15 +47,14 @@ def animate_arrows(skip, scale):
     q = ax.quiver(
         X[::skip, ::skip],
         Y[::skip, ::skip],
-        frames_y[0][::skip, ::skip],
         frames_x[0][::skip, ::skip],
+        frames_y[0][::skip, ::skip],
         scale=scale,
     )
 
     def update_frame(frame_idx):
-        # flipping to make the arrows point in the right direction
-        vx = frames_y[frame_idx]
-        vy = frames_x[frame_idx]
+        vx = frames_x[frame_idx]
+        vy = frames_y[frame_idx]
 
         q.set_UVC(
             vx[::skip, ::skip],
@@ -88,13 +87,13 @@ class AnimationType(Enum):
     stream = 2
 
 if __name__ == "__main__":
-    width, height = 32, 32
+    width, height = 128, 128
     frame_count = 50
     animation_type = AnimationType.magnitude
     files_x = sorted(glob.glob("outputs/v_x_*.bin"))
     files_y = sorted(glob.glob("outputs/v_y_*.bin"))
-    frames_x = [np.fromfile(file, dtype=np.float32).reshape((width, height)) for file in files_x]
-    frames_y = [np.fromfile(file, dtype=np.float32).reshape((width, height)) for file in files_y]
+    frames_x = [np.fromfile(file, dtype=np.float32).reshape((height, width)).T for file in files_x]
+    frames_y = [np.fromfile(file, dtype=np.float32).reshape((height, width)).T for file in files_y]
 
     if animation_type == AnimationType.arrows:
         anim = animate_arrows(1, 5)

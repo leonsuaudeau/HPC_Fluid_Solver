@@ -49,18 +49,39 @@ void streaming(
 }
 
 KOKKOS_INLINE_FUNCTION
+float calculate_correction_term(
+    const float w_i, const  float rho_wall,
+    const int c_x_i, const int c_y_i,
+    const float v_x_wall, const float v_y_wall) {
+    const float c_i_dot_u = c_x_i * v_x_wall + c_y_i * v_y_wall;
+    return 6.0f * w_i * rho_wall * c_i_dot_u;
+}
+
+KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries(
-    const Distribution_t &f, const Distribution_t &f_new,
+    const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
     const iVec &c_x, const iVec &c_y, const Grid_Mask &sf_mask, const iVec &opposite_i,
     const int x, const int y, const int grid_width, const int grid_height) {
     for (int i = 0; i < 9; i++) {
         const int x_old = wrap(x - c_x(i), grid_width);
         const int y_old = wrap(y - c_y(i), grid_height);
 
-        if (sf_mask(x_old, y_old) == 1) {
-            f_new(x, y, i) = f(x, y, opposite_i(i));
-        }else {
-            f_new(x, y, i) = f(x_old, y_old, i);
+        switch (sf_mask(x_old, y_old)) {
+        case 0: {
+            f_new(x, y, i) = f(x_old, y_old, i); // fluid
+            break;
+        }
+        case 1: {
+            f_new(x, y, i) = f(x, y, opposite_i(i)); // standing wall
+            break;
+        }
+        case 2: {
+            f_new(x, y, i) = f(x, y, opposite_i(i)) + calculate_correction_term(
+                w(i), 1.0f, c_x(i), c_y(i),
+                0.1f, 0.0f);
+            break;
+        }
+        default:break;
         }
     }
 }
