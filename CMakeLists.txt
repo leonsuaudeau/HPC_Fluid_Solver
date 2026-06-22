@@ -32,16 +32,16 @@ if(NOT Eigen3_FOUND)
 endif()
 
 find_package(Kokkos 4.7.03)
-#if(NOT Kokkos_FOUND)
-#    include(FetchContent)
-#    FetchContent_Declare(
-#      kokkos
-#      URL https://github.com/kokkos/kokkos/archive/refs/tags/4.7.03.tar.gz
-#    )
-#    set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Disable Kokkos tests" FORCE)
-#    set(Kokkos_ENABLE_EXAMPLES OFF CACHE BOOL "Disable Kokkos examples" FORCE)
-#    FetchContent_MakeAvailable(kokkos)
-#endif()
+if(NOT Kokkos_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+      kokkos
+      URL https://github.com/kokkos/kokkos/archive/refs/tags/4.7.03.tar.gz
+    )
+    set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Disable Kokkos tests" FORCE)
+    set(Kokkos_ENABLE_EXAMPLES OFF CACHE BOOL "Disable Kokkos examples" FORCE)
+    FetchContent_MakeAvailable(kokkos)
+endif()
 
 enable_testing()
 

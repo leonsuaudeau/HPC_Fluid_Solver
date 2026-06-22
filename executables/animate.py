@@ -91,11 +91,11 @@ class AnimationType(Enum):
 if __name__ == "__main__":
     width, height = 128, 128
     frame_count = 50
-    animation_type = AnimationType.stream
+    animation_type = AnimationType.magnitude
     files_x = sorted(glob.glob("outputs/v_x_*.bin"))
     files_y = sorted(glob.glob("outputs/v_y_*.bin"))
-    frames_x = [np.fromfile(file, dtype=np.float32).reshape((height, width)).T for file in files_x]
-    frames_y = [np.fromfile(file, dtype=np.float32).reshape((height, width)).T for file in files_y]
+    frames_x = [np.fromfile(file, dtype=np.float32).reshape((height, width)) for file in files_x]
+    frames_y = [np.fromfile(file, dtype=np.float32).reshape((height, width)) for file in files_y]
 
     if animation_type == AnimationType.arrows:
         anim = animate_arrows(1, 5)

@@ -1,10 +1,10 @@
 #ifndef HPC_FLUID_SOLVER_OUTPUT_H
 #define HPC_FLUID_SOLVER_OUTPUT_H
-#include "output.h"
 #include <Kokkos_Core.hpp>
 #include <fstream>
 #include <iomanip>
 #include <string>
+#include <vector>
 
 namespace out {
 inline constexpr auto base_address = "../../outputs/";
@@ -21,7 +21,12 @@ void write_to(const std::string& name, const View2D &data, int width, int height
     std::ostringstream filename;
     filename << base_address << name << "_" << std::setw(5) << std::setfill('0') << std::to_string(frame) << ".bin";
     std::ofstream file(filename.str(), std::ios::binary);
-    file.write(reinterpret_cast<char*>(data.data()), static_cast<long>(width * height * sizeof(float)));
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            const float value = data(x, y);
+            file.write(reinterpret_cast<const char*>(&value), sizeof(float));
+        }
+    }
     file.close();
 }
 
