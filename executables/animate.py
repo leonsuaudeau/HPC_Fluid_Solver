@@ -27,6 +27,8 @@ def animate_stream():
 
     def update_frame(frame_idx):
         ax.clear()
+        ax.set_xlim([0, width])
+        ax.set_ylim([0, height])
         u = frames_x[frame_idx]
         v = frames_y[frame_idx]
         stream = ax.streamplot(x, y, u, v, density=1.2, linewidth=1, arrowsize=1,)
@@ -89,7 +91,7 @@ class AnimationType(Enum):
 if __name__ == "__main__":
     width, height = 128, 128
     frame_count = 50
-    animation_type = AnimationType.magnitude
+    animation_type = AnimationType.stream
     files_x = sorted(glob.glob("outputs/v_x_*.bin"))
     files_y = sorted(glob.glob("outputs/v_y_*.bin"))
     frames_x = [np.fromfile(file, dtype=np.float32).reshape((height, width)).T for file in files_x]
