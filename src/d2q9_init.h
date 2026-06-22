@@ -6,7 +6,7 @@
 
 namespace d2q9 {
 
-iVec c_x_host_init(const iVec& c_x_device) {
+iVec_host c_x_host_init(const iVec& c_x_device) {
     const auto c_x_host = Kokkos::create_mirror_view(c_x_device);
     c_x_host(0) = 0;
     c_x_host(1) = 1;
@@ -21,7 +21,7 @@ iVec c_x_host_init(const iVec& c_x_device) {
     return c_x_host;
 }
 
-iVec c_y_host_init(const iVec &c_y_device) {
+iVec_host c_y_host_init(const iVec &c_y_device) {
     const auto c_y_host = Kokkos::create_mirror_view(c_y_device);
     c_y_host(0) = 0;
     c_y_host(1) = 0;
@@ -36,7 +36,7 @@ iVec c_y_host_init(const iVec &c_y_device) {
     return c_y_host;
 }
 
-Vec w_host_init(const Vec &w_device) {
+Vec_host w_host_init(const Vec &w_device) {
     auto w_host = Kokkos::create_mirror_view(w_device);
     w_host(0) = 4.0f / 9.0f;
     w_host(1) = 1.0f / 9.0f;
@@ -51,7 +51,7 @@ Vec w_host_init(const Vec &w_device) {
     return w_host;
 }
 
-iVec opposite_i_host_init(const iVec &opposite_i_device) {
+iVec_host opposite_i_host_init(const iVec &opposite_i_device) {
     auto opposite_i_host = Kokkos::create_mirror_view(opposite_i_device);
     opposite_i_host[0] = 0;
     opposite_i_host[1] = 3;

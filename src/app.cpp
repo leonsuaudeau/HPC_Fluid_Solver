@@ -37,8 +37,7 @@ int App::run(int argc, char *argv[]) {
         auto f_host = Kokkos::create_mirror_view(f);
         auto sf_mask_host = Kokkos::create_mirror_view(sf_mask);
 
-        Vec measurements("m", state.max_steps);
-        auto measurements_host = Kokkos::create_mirror_view(measurements);
+        Vec_host measurements_host("m", state.max_steps);
 
         // Grid initializations
         float n_y_inv = 1.0f / static_cast<float>(grid.height);
@@ -73,10 +72,12 @@ int App::run(int argc, char *argv[]) {
         Kokkos::deep_copy(f, f_host);
         Kokkos::deep_copy(sf_mask, sf_mask_host);
 
+        const int width = grid.width;
+        const int height = grid.height;
         while (state.timestep < state.max_steps) {
             // Simulation step
             Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({0,0}, {grid.width, grid.height}),
+                Kokkos::MDRangePolicy({0,0}, {width, height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
                 eq::update_density(rho, f, x, y);
                 eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
@@ -84,16 +85,24 @@ int App::run(int argc, char *argv[]) {
             });
 
             Kokkos::parallel_for("streaming step",
-                Kokkos::MDRangePolicy({0,0}, {grid.width, grid.height}),
+                Kokkos::MDRangePolicy({0,0}, {width, height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, sf_mask, opposite_i, x, y, grid.width, grid.height);
+                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, sf_mask, opposite_i, x, y, width, height);
             });
 
             // TODO: perhaps separate streaming and boundary handling
 
             std::swap(f, f_new);
 
-            measurements[state.timestep] = eq::calculate_sin_amplitude(v_x, v_y, k);
+            float amplitude_sum = 0.0f;
+            Kokkos::parallel_reduce("sin amplitude",
+                Kokkos::MDRangePolicy({0, 0}, {width, height}),
+                KOKKOS_LAMBDA(const int x, const int y, float& local_sum) {
+                local_sum += v_x(x, y) * sinf(k * static_cast<float>(y));},amplitude_sum);
+
+            measurements_host(state.timestep) =
+                amplitude_sum * (1.0f / static_cast<float>(grid.width)) *
+                    (1.0f / static_cast<float>(grid.height)) * 2.0f;
 
             if (state.timestep % state.draw_steps == 0) {
                 Kokkos::deep_copy(v_x_host, v_x);
