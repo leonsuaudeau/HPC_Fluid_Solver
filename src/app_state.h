@@ -3,7 +3,7 @@
 
 struct AppState {
     int timestep = 0;
-    int max_steps = 50000;
+    int max_steps = 10000;
     int draw_steps = 100;
 };
 

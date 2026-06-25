@@ -29,13 +29,16 @@ int App::run(int argc, char *argv[]) {
         Velocity_t v_y("v_dty", grid.width, grid.height);
         Distribution_t f("f", grid.width, grid.height, 9);
         Distribution_t f_new("f_new", grid.width, grid.height, 9);
-        Grid_Mask sf_mask("sf_mask", grid.width, grid.height);
+
+        int boundary_conditions [4] = {1,1,1,1}; // (left, bottom, right, top) 0 = periodic, 1 = wall
+        float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
+        // TODO: fix corners, use 2 vel. values per wall for this!
+
 
         auto rho_host = Kokkos::create_mirror_view(rho);
         auto v_x_host = Kokkos::create_mirror_view(v_x);
         auto v_y_host = Kokkos::create_mirror_view(v_y);
         auto f_host = Kokkos::create_mirror_view(f);
-        auto sf_mask_host = Kokkos::create_mirror_view(sf_mask);
 
         Vec_host measurements_host("m", state.max_steps);
 
@@ -47,21 +50,13 @@ int App::run(int argc, char *argv[]) {
                 rho_host(x, y) = 1.0f;
                 v_x_host(x, y) = 0.0f;
                 v_y_host(x, y) = 0.0f;
-                sf_mask_host(x, y) = 0; // fluid
-
-                /*
-                if (x == grid.width / 2 && y == grid.height / 2) {
-                    rho_host(x, y) = 1.0f;
-                }
-                */
-
-                if (y == 0) sf_mask_host(x, y) = 1;
-                if (y == grid.height - 1) sf_mask_host(x, y) = 2;
-                if (x == 0) sf_mask_host(x, y) = 1;
-                if (x == grid.width - 1) sf_mask_host(x, y) = 1;
 
                 for (int i = 0; i < 9; i++) {
-                    f_host(x, y, i) = eq::calculate_eq_distrib(rho_host(x, y), v_x_host(x, y), v_y_host(x, y), c_x_host(i), c_y_host(i), w_host(i));
+                    f_host(x, y, i) = eq::calculate_eq_distrib(
+                        rho_host(x, y),
+                        v_x_host(x, y), v_y_host(x, y),
+                        c_x_host(i), c_y_host(i),
+                        w_host(i));
                 }
             }
         }
@@ -70,7 +65,6 @@ int App::run(int argc, char *argv[]) {
         Kokkos::deep_copy(v_x, v_x_host);
         Kokkos::deep_copy(v_y, v_y_host);
         Kokkos::deep_copy(f, f_host);
-        Kokkos::deep_copy(sf_mask, sf_mask_host);
 
         const int width = grid.width;
         const int height = grid.height;
@@ -87,7 +81,7 @@ int App::run(int argc, char *argv[]) {
             Kokkos::parallel_for("streaming step",
                 Kokkos::MDRangePolicy({0,0}, {width, height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, sf_mask, opposite_i, x, y, width, height);
+                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
             });
 
             // TODO: perhaps separate streaming and boundary handling

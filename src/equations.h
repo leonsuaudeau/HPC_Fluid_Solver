@@ -60,28 +60,45 @@ float calculate_correction_term(
 KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries(
     const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const Grid_Mask &sf_mask, const iVec &opposite_i,
+    const iVec &c_x, const iVec &c_y, const int boundary_conditions[4],
+    const float boundary_values[4], const iVec &opposite_i,
     const int x, const int y, const int grid_width, const int grid_height) {
     for (int i = 0; i < 9; i++) {
-        const int x_old = wrap(x - c_x(i), grid_width);
-        const int y_old = wrap(y - c_y(i), grid_height);
+        int x_source = x - c_x(i);
+        int y_source = y - c_y(i);
 
-        switch (sf_mask(x_old, y_old)) {
-        case 0: {
-            f_new(x, y, i) = f(x_old, y_old, i); // fluid
-            break;
+        int boundary = -1;
+
+        if (x_source < 0) {
+            boundary = 0;
+        } else if (y_source < 0) {
+            boundary = 1;
+        } else if (x_source >= grid_width) {
+            boundary = 2;
+        } else if (y_source >= grid_height) {
+            boundary = 3;
         }
-        case 1: {
-            f_new(x, y, i) = f(x, y, opposite_i(i)); // standing wall
-            break;
-        }
-        case 2: {
+
+        // no boundary
+        const int x_periodic = wrap(x_source, grid_width);
+        const int y_periodic = wrap(y_source, grid_height);
+        f_new(x, y, i) = f(x_periodic, y_periodic, i);
+
+        if (boundary >= 0 && boundary_conditions[boundary] == 1) {
+            const float wall_speed = boundary_values[boundary];
+
+            float v_x_wall = 0.0f;
+            float v_y_wall = 0.0f;
+
+            if (boundary == 1 || boundary == 3) {
+                v_x_wall = wall_speed;
+            }else {
+                v_y_wall = wall_speed;
+            }
+
             f_new(x, y, i) = f(x, y, opposite_i(i)) + calculate_correction_term(
                 w(i), 1.0f, c_x(i), c_y(i),
-                0.1f, 0.0f);
-            break;
-        }
-        default:break;
+                v_x_wall , v_y_wall);
         }
     }
 }
