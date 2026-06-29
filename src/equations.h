@@ -60,7 +60,7 @@ float calculate_correction_term(
 KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries(
     const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const int boundary_conditions[4],
+    const iVec &c_x, const iVec &c_y, const int boundary_conditions[2],
     const float boundary_values[4], const iVec &opposite_i,
     const int x, const int y, const int grid_width, const int grid_height) {
     for (int i = 0; i < 9; i++) {
@@ -84,7 +84,7 @@ void streaming_with_boundaries(
         const int y_periodic = wrap(y_source, grid_height);
         f_new(x, y, i) = f(x_periodic, y_periodic, i);
 
-        if (boundary >= 0 && boundary_conditions[boundary] == 1) {
+        if (boundary >= 0 && boundary_conditions[boundary % 2] == 1) {
             const float wall_speed = boundary_values[boundary];
 
             float v_x_wall = 0.0f;
@@ -99,6 +99,59 @@ void streaming_with_boundaries(
             f_new(x, y, i) = f(x, y, opposite_i(i)) + calculate_correction_term(
                 w(i), 1.0f, c_x(i), c_y(i),
                 v_x_wall , v_y_wall);
+        }
+    }
+}
+
+KOKKOS_INLINE_FUNCTION
+void streaming_with_boundaries_mpi(
+    const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
+    const iVec &c_x, const iVec &c_y, const int boundary_conditions[2],
+    const float boundary_values[4], const iVec &opposite_i,
+    const int rank_x, const int x_offset, const int y, const int grid_width, const int grid_height) {
+
+    const int global_x = rank_x + x_offset - 1;
+
+    for (int i = 0; i < 9; i++) {
+        const int rank_x_source = rank_x - c_x(i);
+        const int global_x_source = global_x - rank_x_source;
+        int global_y_source = y - c_y(i);
+
+        int boundary = -1;
+
+        if (global_x_source < 0) {
+            boundary = 0;
+        } else if (global_y_source < 0) {
+            boundary = 1;
+        } else if (global_x_source >= grid_width) {
+            boundary = 2;
+        } else if (global_y_source >= grid_height) {
+            boundary = 3;
+        }
+
+        if (boundary >= 0 && boundary_conditions[boundary % 2] == 1) {
+            // wall boundary
+            const float wall_speed = boundary_values[boundary];
+
+            float v_x_wall = 0.0f;
+            float v_y_wall = 0.0f;
+
+            if (boundary == 1 || boundary == 3) {
+                v_x_wall = wall_speed;
+            }else {
+                v_y_wall = wall_speed;
+            }
+
+            f_new(rank_x, y, i) = f(rank_x, y, opposite_i(i)) + calculate_correction_term(
+                w(i), 1.0f, c_x(i), c_y(i),
+                v_x_wall , v_y_wall);
+        } else {
+            // periodic or no boundary
+            if (global_y_source < 0 || global_y_source >= grid_height) {
+                global_y_source = wrap(global_y_source, grid_height);
+            }
+
+            f_new(rank_x, y, i) = f(rank_x_source, global_y_source, i);
         }
     }
 }
@@ -144,6 +197,7 @@ float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, cons
     }
     return sum * n_x_inv * n_y_inv * 2.0f;
 }
+
 }
 
 #endif // HPC_FLUID_SOLVER_EQUATIONS_H
