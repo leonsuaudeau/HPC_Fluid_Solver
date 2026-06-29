@@ -39,8 +39,12 @@ inline void exchange_halos(const Distribution_t &f,
         Kokkos::MDRangePolicy({0, 0}, {height, 9}),
         KOKKOS_LAMBDA(const int y, const int i) {
         const int index = y * 9 + i;
-        f(0, y, i) = receive_buffer_left(index);
-        f(rank_width + 1, y, i) = receive_buffer_right(index);
+        if (left != MPI_PROC_NULL) {
+            f(0, y, i) = receive_buffer_left(index);
+        }
+        if (right != MPI_PROC_NULL) {
+            f(rank_width + 1, y, i) = receive_buffer_right(index);
+        }
     });
 }
 

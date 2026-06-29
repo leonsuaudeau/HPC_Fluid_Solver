@@ -114,7 +114,7 @@ void streaming_with_boundaries_mpi(
 
     for (int i = 0; i < 9; i++) {
         const int rank_x_source = rank_x - c_x(i);
-        const int global_x_source = global_x - rank_x_source;
+        const int global_x_source = global_x - c_x(i);
         int global_y_source = y - c_y(i);
 
         int boundary = -1;

@@ -11,11 +11,10 @@
 App::App() = default;
 
 int App::run(int argc, char *argv[]) {
-    MPI_Init(&argc, &argv);
     Kokkos::initialize(argc, argv);
     {
-        int width = 1000;
-        int height = 1000;
+        int width = 128;
+        int height = 128;
 
         iVec c_x("c_x", 9);
         iVec c_y("c_y", 9);
@@ -67,7 +66,7 @@ int App::run(int argc, char *argv[]) {
         Kokkos::deep_copy(v_y, v_y_host);
         Kokkos::deep_copy(f, f_host);
 
-        float global_mass = 0.0f;
+        double global_mass = 0.0f;
 
         while (state.timestep < state.max_steps) {
             // Simulation step
@@ -81,7 +80,7 @@ int App::run(int argc, char *argv[]) {
             if (state.timestep % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
                     Kokkos::MDRangePolicy({0,0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y, float& sum) {
+                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     sum += rho(x, y);
                 },
                 global_mass);
@@ -91,7 +90,7 @@ int App::run(int argc, char *argv[]) {
             Kokkos::parallel_for("density + velocity + relaxation step",
                 Kokkos::MDRangePolicy({0,0}, {width, height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-
+                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
             });
 
             Kokkos::parallel_for("streaming step",
@@ -129,7 +128,6 @@ int App::run(int argc, char *argv[]) {
     }
 
     Kokkos::finalize();
-    MPI_Finalize();
 
     return 0;
 }
@@ -155,8 +153,8 @@ int App::run_mpi(int argc, char *argv[]) const {
         }
         */
 
-        int width = 1000;
-        int height = 1000;
+        int width = 128;
+        int height = 128;
         int base_n = width / size;
         int remainder = width % size;
 
@@ -182,8 +180,8 @@ int App::run_mpi(int argc, char *argv[]) const {
             right = rank < size - 1 ? right : MPI_PROC_NULL;
         }
 
-        float local_mass = 0.0f;
-        float global_mass = 0.0f;
+        double local_mass = 0.0f;
+        double global_mass = 0.0f;
 
         // d2q9 initialization -------------------------------------------------
         iVec c_x("c_x", 9);
@@ -235,12 +233,12 @@ int App::run_mpi(int argc, char *argv[]) const {
             if (step % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
                     Kokkos::MDRangePolicy({1,0}, {rank_width+1, height}),
-                    KOKKOS_LAMBDA(const int x, const int y, float& sum) {
+                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     sum += rho(x, y);
                 },
                 local_mass);
                 Kokkos::fence();
-                MPI_Reduce(&local_mass, &global_mass, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+                MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
                 if (rank == 0) {
                     std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
                 }
@@ -273,7 +271,7 @@ int App::run_mpi(int argc, char *argv[]) const {
         double local_elapsed_time = end_time - start_time;
         double global_elapsed_time = 0.0f;
 
-        MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
         if (rank == 0) {
             std::cout << "Elapsed time: " << global_elapsed_time << " seconds" << std::endl;
         }
