@@ -132,7 +132,7 @@ int App::run(int argc, char *argv[]) {
     return 0;
 }
 
-int App::run_mpi(int argc, char *argv[]) const {
+int App::run_mpi_strips(int argc, char *argv[]) const {
     MPI_Init(&argc, &argv);
     Kokkos::initialize(argc, argv);
 
@@ -146,27 +146,20 @@ int App::run_mpi(int argc, char *argv[]) const {
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-        /*
-        if (size < 2) {
-            std::cerr << "Need at least 2 processes" << std::endl;
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        */
+        int grid_width = 128;
+        int grid_height = 128;
+        int base_strip_width = grid_width / size;
+        int remainder = grid_width % size;
 
-        int width = 128;
-        int height = 128;
-        int base_n = width / size;
-        int remainder = width % size;
-
-        Vec send_buffer_left("send_buffer_left", height * 9);
-        Vec send_buffer_right("send_buffer_right", height * 9);
-        Vec receive_buffer_left("receive_buffer_left", height * 9);
-        Vec receive_buffer_right("receive_buffer_right", height * 9);
-        int halo_size = height * 9;
+        Vec send_buffer_left("send_buffer_left", grid_height * 9);
+        Vec send_buffer_right("send_buffer_right", grid_height * 9);
+        Vec receive_buffer_left("receive_buffer_left", grid_height * 9);
+        Vec receive_buffer_right("receive_buffer_right", grid_height * 9);
+        int halo_size = grid_height * 9;
 
         // Share remainder across the first few ranks
-        int rank_width = base_n + (rank < remainder ? 1 : 0);
-        int x_offset = rank * base_n + std::min(rank, remainder);
+        int strip_width = base_strip_width + (rank < remainder ? 1 : 0);
+        int x_offset = rank * base_strip_width + std::min(rank, remainder);
 
         // Left and right neighbors depend on boundary conditions
 
@@ -194,15 +187,15 @@ int App::run_mpi(int argc, char *argv[]) const {
         auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
 
         // Main view initializations -------------------------------------------
-        Density_t rho("rho", rank_width + 2, height);
-        Velocity_t v_x("v_x", rank_width + 2, height);
-        Velocity_t v_y("v_dty", rank_width + 2, height);
-        Distribution_t f("f", rank_width + 2, height, 9);
-        Distribution_t f_new("f_new", rank_width + 2, height, 9);
+        Density_t rho("rho", strip_width + 2, grid_height);
+        Velocity_t v_x("v_x", strip_width + 2, grid_height);
+        Velocity_t v_y("v_dty", strip_width + 2, grid_height);
+        Distribution_t f("f", strip_width + 2, grid_height, 9);
+        Distribution_t f_new("f_new", strip_width + 2, grid_height, 9);
 
         // Grid initialization -------------------------------------------------
         Kokkos::parallel_for("grid initialization",
-            Kokkos::MDRangePolicy({1, 0}, {rank_width + 1, height}),
+            Kokkos::MDRangePolicy({1, 0}, {strip_width + 1, grid_height}),
             KOKKOS_LAMBDA(const int x, const int y) {
             rho(x, y) = 1.0f;
             v_x(x, y) = 0.0f;
@@ -214,8 +207,6 @@ int App::run_mpi(int argc, char *argv[]) const {
                     c_x(i), c_y(i), w(i));
             }
         });
-        //Kokkos::fence();
-        //dom::exchange_halos(f, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, rank_width, height, halo_size);
 
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
@@ -224,7 +215,7 @@ int App::run_mpi(int argc, char *argv[]) const {
         for (int step = 0; step < state.max_steps; step++) {
 
             Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({1,0}, {rank_width+1, height}),
+                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
                 eq::update_density(rho, f, x, y);
                 eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
@@ -232,7 +223,7 @@ int App::run_mpi(int argc, char *argv[]) const {
 
             if (step % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
-                    Kokkos::MDRangePolicy({1,0}, {rank_width+1, height}),
+                    Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     sum += rho(x, y);
                 },
@@ -245,23 +236,22 @@ int App::run_mpi(int argc, char *argv[]) const {
             }
 
             Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({1,0}, {rank_width+1, height}),
+                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
                 eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
             });
 
-
             Kokkos::fence();
 
-            dom::exchange_halos(f, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, rank_width, height, halo_size);
+            dom::exchange_halos_vert_strips(f, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, strip_width, grid_height, halo_size);
 
             Kokkos::parallel_for("streaming step",
-                Kokkos::MDRangePolicy({1,0}, {rank_width+1, height}),
+                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries_mpi(
+                eq::streaming_with_boundaries_mpi_strips(
                     f, f_new, w, c_x, c_y,
                     boundary_conditions, boundary_values, opposite_i,
-                    x, x_offset, y, width, height);
+                    x, x_offset, y, grid_width, grid_height);
             });
 
             std::swap(f, f_new);
@@ -280,5 +270,158 @@ int App::run_mpi(int argc, char *argv[]) const {
     Kokkos::finalize();
     MPI_Finalize();
 
+    return 0;
+}
+
+int App::run_mpi_tiles(int argc, char *argv[]) const {
+    MPI_Init(&argc, &argv);
+    Kokkos::initialize(argc, argv);
+    {
+        // boundary definition -------------------------------------------------
+        int boundary_conditions [2] = {1,1}; // (horizontal, vertical) 0 = periodic, 1 = wall
+        float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
+
+        // domain decomposition setup ------------------------------------------
+        int size;
+        MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+        int dims[2] = {0, 0};
+        MPI_Dims_create(size, 2, dims);
+        int periods[2];
+        periods[0] = boundary_conditions[0] == 0;
+        periods[1] = boundary_conditions[1] == 0;
+
+        MPI_Comm cart;
+        MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &cart);
+
+        int rank, coords[2];
+        MPI_Comm_rank(cart, &rank);
+        MPI_Cart_coords(cart, rank, 2, coords);
+
+        int grid_width = 128;
+        int grid_height = 128;
+        int base_tile_width = grid_width / dims[0];
+        int base_tile_height = grid_height / dims[1];
+        int remainder_x = grid_width % dims[0];
+        int remainder_y = grid_height % dims[1];
+
+        int tile_width = base_tile_width + (rank < remainder_x ? 1 : 0);
+        int tile_height = base_tile_height + (rank < remainder_y ? 1 : 0);
+        int x_offset = coords[0] * base_tile_width + std::min(rank, remainder_x);
+        int y_offset = coords[1] * base_tile_height + std::min(rank, remainder_y);
+
+        Vec send_buffer_left("send_buffer_left", tile_height * 9);
+        Vec send_buffer_right("send_buffer_right", tile_height * 9);
+        Vec receive_buffer_left("receive_buffer_left", tile_height * 9);
+        Vec receive_buffer_right("receive_buffer_right", tile_height * 9);
+
+        Vec send_buffer_up("send_buffer_up", (tile_width + 2) * 9);
+        Vec send_buffer_down("send_buffer_down", (tile_width + 2) * 9);
+        Vec receive_buffer_up("receive_buffer_up", (tile_width + 2) * 9);
+        Vec receive_buffer_down("receive_buffer_down", (tile_width + 2) * 9);
+
+        int halo_size[2] = {tile_height * 9, (tile_width + 2) * 9};
+
+        int left, right, up, down;
+        MPI_Cart_shift(cart, 0, 1, &left, &right);
+        MPI_Cart_shift(cart, 1, 1, &up, &down);
+
+        double local_mass = 0.0f;
+        double global_mass = 0.0f;
+
+        // d2q9 initialization -------------------------------------------------
+        iVec c_x("c_x", 9);
+        iVec c_y("c_y", 9);
+        Vec w("w", 9);
+        iVec opposite_i("opposite_i", 9);
+        auto c_x_host = d2q9::c_x_host_init(c_x);
+        auto c_y_host = d2q9::c_y_host_init(c_y);
+        auto w_host = d2q9::w_host_init(w);
+        auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
+
+        // Main view initializations -------------------------------------------
+        Density_t rho("rho", tile_width + 2, tile_height + 2);
+        Velocity_t v_x("v_x", tile_width + 2, tile_height + 2);
+        Velocity_t v_y("v_dty", tile_width + 2, tile_height + 2);
+        Distribution_t f("f", tile_width + 2, tile_height + 2, 9);
+        Distribution_t f_new("f_new", tile_width + 2, tile_height + 2, 9);
+
+        // Grid initialization -------------------------------------------------
+        Kokkos::parallel_for("grid initialization",
+            Kokkos::MDRangePolicy({1, 1}, {tile_width + 1, tile_height + 1}),
+            KOKKOS_LAMBDA(const int x, const int y) {
+            rho(x, y) = 1.0f;
+            v_x(x, y) = 0.0f;
+            v_y(x, y) = 0.0f;
+
+            for (int i = 0; i < 9; i++) {
+                f(x, y, i) = eq::calculate_eq_distrib(
+                    rho(x, y), v_x(x, y), v_y(x, y),
+                    c_x(i), c_y(i), w(i));
+            }
+        });
+
+        MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
+        double start_time = MPI_Wtime();
+
+        // Main simulation loop ------------------------------------------------
+        for (int step = 0; step < state.max_steps; step++) {
+
+            Kokkos::parallel_for("density + velocity",
+                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                KOKKOS_LAMBDA(const int x, const int y) {
+                eq::update_density(rho, f, x, y);
+                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
+            });
+
+            if (step % state.measurement_interval == 0) {
+                Kokkos::parallel_reduce("sum of masses",
+                    Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
+                    sum += rho(x, y);
+                },
+                local_mass);
+                Kokkos::fence();
+                MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, cart);
+                if (rank == 0) {
+                    std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+                }
+            }
+
+            Kokkos::parallel_for("relaxation step",
+                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                KOKKOS_LAMBDA(const int x, const int y) {
+                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
+            });
+
+            Kokkos::fence();
+
+            // 2-pass exchange, first horizontal, then vertical including ghost corners
+            dom::exchange_halos_tiles_x_pass(f, cart, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, tile_width, tile_height, halo_size);
+            dom::exchange_halos_tiles_y_pass(f, cart, send_buffer_up, send_buffer_down, receive_buffer_up, receive_buffer_down, up, down, tile_width, tile_height, halo_size);
+
+            Kokkos::parallel_for("streaming step",
+                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                KOKKOS_LAMBDA(const int x, const int y) {
+                eq::streaming_with_boundaries_mpi_tiles(
+                    f, f_new, w, c_x, c_y,
+                    boundary_conditions, boundary_values, opposite_i,
+                    x, y, x_offset, y_offset, grid_width, grid_height);
+            });
+
+            std::swap(f, f_new);
+        }
+
+        double end_time = MPI_Wtime();
+        double local_elapsed_time = end_time - start_time;
+        double global_elapsed_time = 0.0f;
+
+        MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, cart);
+        if (rank == 0) {
+            std::cout << "Elapsed time: " << global_elapsed_time << " seconds" << std::endl;
+        }
+    }
+    Kokkos::finalize();
+    MPI_Finalize();
     return 0;
 }

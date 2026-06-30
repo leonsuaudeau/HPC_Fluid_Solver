@@ -6,7 +6,8 @@ class App {
 public:
     App();
     int run(int argc, char *argv[]);
-    int run_mpi(int argc, char *argv[]) const;
+    int run_mpi_strips(int argc, char *argv[]) const;
+    int run_mpi_tiles(int argc, char *argv[]) const;
     AppState state{};
 };
 
