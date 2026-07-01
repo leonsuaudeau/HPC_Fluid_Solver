@@ -1,6 +1,8 @@
 # Custom files here
 *.xyz
 .idea
+.agents
+.codex
 
 # -------------- Below are genereated exclusion patterns ----------------------
 
