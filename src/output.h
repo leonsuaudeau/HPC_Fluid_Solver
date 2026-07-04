@@ -4,13 +4,12 @@
 #include <fstream>
 #include <iomanip>
 #include <string>
-#include <vector>
 
 namespace out {
 inline constexpr auto base_address = "../../outputs/";
 template<class View2D>
 
-void write_to(const std::string& name, const View2D &data, int width, int height, int frame) {
+void write_to(const std::string& name, const View2D &data, int width, int height, int frame = -1) {
     static_assert(View2D::rank == 2, "write_to expects a rank-2 kokkos view");
     static_assert(std::is_same_v<typename View2D::non_const_value_type, float>,
         "write_to expects a float view");
@@ -19,7 +18,12 @@ void write_to(const std::string& name, const View2D &data, int width, int height
         "write_to expects a host-accessible view");
 
     std::ostringstream filename;
-    filename << base_address << name << "_" << std::setw(5) << std::setfill('0') << std::to_string(frame) << ".bin";
+    if (frame == -1) {
+        filename << base_address << name << ".bin";
+    }else {
+        filename << base_address << name << "_" << std::setw(5) << std::setfill('0') << std::to_string(frame) << ".bin";
+    }
+
     std::ofstream file(filename.str(), std::ios::binary);
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {

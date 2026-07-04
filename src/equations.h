@@ -249,6 +249,11 @@ float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, cons
     return sum * n_x_inv * n_y_inv * 2.0f;
 }
 
+inline float calculate_reynolds_number(const float lid_vel[4], const int L, const float omega) {
+    const float nu = 1.0f/3.0f * (1.0f/omega - 1.0f/2.0f);
+    return std::max(std::max(lid_vel[0], lid_vel[1]), std::max(lid_vel[2], lid_vel[3])) * static_cast<float>(L) / nu;
+}
+
 }
 
 #endif // HPC_FLUID_SOLVER_EQUATIONS_H

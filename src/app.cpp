@@ -31,7 +31,7 @@ int App::run(int argc, char *argv[]) {
         Distribution_t f("f", width, height, 9);
         Distribution_t f_new("f_new", width, height, 9);
 
-        int boundary_conditions [2] = {1,1}; // (horizontal, vertical) 0 = periodic, 1 = wall
+        int boundary_conditions [2] = {0, 0}; // (horizontal, vertical) 0 = periodic, 1 = wall
         float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
         // TODO: fix corners, use 2 vel. values per wall for this!
 
@@ -48,7 +48,7 @@ int App::run(int argc, char *argv[]) {
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 rho_host(x, y) = 1.0f;
-                v_x_host(x, y) = 0.0f;
+                v_x_host(x, y) = eq::sinusoidal(y, 0.1f, k);
                 v_y_host(x, y) = 0.0f;
 
                 for (int i = 0; i < 9; i++) {
@@ -67,6 +67,10 @@ int App::run(int argc, char *argv[]) {
         Kokkos::deep_copy(f, f_host);
 
         double global_mass = 0.0f;
+
+        float omega = 1.7f;
+
+        std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
 
         while (state.timestep < state.max_steps) {
             // Simulation step
@@ -90,7 +94,7 @@ int App::run(int argc, char *argv[]) {
             Kokkos::parallel_for("density + velocity + relaxation step",
                 Kokkos::MDRangePolicy({0,0}, {width, height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
+                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
             });
 
             Kokkos::parallel_for("streaming step",
@@ -125,6 +129,22 @@ int App::run(int argc, char *argv[]) {
             }
             state.timestep++;
         }
+
+        // For moving lid plotting, comment out the other exports and uncomment this
+        // You should plot different raynolds numbers, grid sizes, etc.
+        /*
+
+        Kokkos::deep_copy(v_y_host, v_y);
+
+        out::write_to("moving_lid/v_x", v_x_host, width, height);
+        out::write_to("moving_lid/v_y", v_y_host, width, height);
+
+        std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
+        */
+
+        Kokkos::deep_copy(v_x_host, v_x);
+        out::write_to("shear_wave/v_x", v_x_host, width, height);
+        out::write_to("shear_wave/amplitude", measurements_host);
     }
 
     Kokkos::finalize();
