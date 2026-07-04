@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pyrr.trig import aspect_ratio
-from rich import color
+import glob
 
 
 def calculate_viscosity(filename):
@@ -25,16 +24,36 @@ def calculate_viscosity(filename):
     k = 2 * np.pi / 32 # TODO: can this be made to automatically update?
     return -m / (k * k)
 
-def plot_shear_wave():
+def plot_shear_wave_over_time():
     L = 128
     Y = np.arange(0, 1, 1/L)
-    v_x = np.fromfile("outputs/moving_lid/v_x.bin", dtype=np.float32).reshape((L, L))
 
-    f = v_x[10]
+    files_x = sorted(glob.glob("outputs/shear_wave/over_time/v_x_*.bin"))
+    frames_x = [np.fromfile(file, dtype=np.float32).reshape((L, L)) for file in files_x]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(Y, f, label="x")
+    params = {'mathtext.default': 'regular' }
+    plt.rcParams.update(params)
+
+    fig, ax = plt.subplots()
+    step = 0
+    for frame in frames_x:
+        f = frame[:, 10]
+        ax.plot(Y, f, label=f"step {step}")
+        step = step + 4000
+    ax.plot(Y, np.zeros(L), color="black")
+    ax.set_xlabel("$y/L_{y}$")
+    ax.set_ylabel("$u_{x}(y,t)$")
+    plt.legend()
     plt.show()
+
+def plot_shear_wave_amplitude():
+    amplitudes = np.fromfile("outputs/shear_wave/amplitude.bin", dtype=np.float32)
+    X = np.arange(amplitudes.size)
+
+    fig, ax = plt.subplots()
+    ax.plot(X, amplitudes)
+    plt.show()
+
 
 def plot_viscosity():
     measured_values = []
@@ -92,4 +111,4 @@ def plot_stream():
 
 
 if __name__ == "__main__":
-    plot_shear_wave()
+    plot_shear_wave_amplitude()

@@ -48,7 +48,7 @@ int App::run(int argc, char *argv[]) {
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 rho_host(x, y) = 1.0f;
-                v_x_host(x, y) = eq::sinusoidal(y, 0.1f, k);
+                v_x_host(x, y) = eq::sinusoidal(y, 1.0f, k);
                 v_y_host(x, y) = 0.0f;
 
                 for (int i = 0; i < 9; i++) {
@@ -141,9 +141,6 @@ int App::run(int argc, char *argv[]) {
 
         std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
         */
-
-        Kokkos::deep_copy(v_x_host, v_x);
-        out::write_to("shear_wave/v_x", v_x_host, width, height);
         out::write_to("shear_wave/amplitude", measurements_host);
     }
 

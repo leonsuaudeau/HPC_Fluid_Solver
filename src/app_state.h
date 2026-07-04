@@ -3,9 +3,9 @@
 
 struct AppState {
     int timestep = 0;
-    int max_steps = 10000;
+    int max_steps = 40000;
     int measurement_interval = 1000;
-    int draw_steps = 100;
+    int draw_steps = 2000;
 };
 
 #endif // HPC_FLUID_SOLVER_APP_STATE_H
