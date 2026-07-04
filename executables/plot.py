@@ -6,6 +6,7 @@ import glob
 def calculate_viscosity(filename):
     seq = np.fromfile(filename, dtype=np.float32)
 
+    # least linear squares fit
     N = len(seq)
     sum_t = 0
     sum_y = 0
@@ -21,7 +22,7 @@ def calculate_viscosity(filename):
 
 
     m = (N * sum_ty - sum_t * sum_y) / (N * sum_tt - sum_t * sum_t)
-    k = 2 * np.pi / 32 # TODO: can this be made to automatically update?
+    k = 2 * np.pi / 64 # TODO: can this be made to automatically update?
     return -m / (k * k)
 
 def plot_shear_wave_over_time():
@@ -60,10 +61,12 @@ def plot_viscosity():
     analytical_values = []
     omegas = []
 
-    for o in range(1, 21):
-        omega = 1 / o * 2
-        name = "outputs/measurements_" + f"{o:02d}" + ".bin"
+    for o in range(1, 101):
+        omega = o / 50
+        name = "outputs/shear_wave/different_k/amplitude_" + f"{o:03d}" + ".bin"
+        print(name)
         nu_measured = calculate_viscosity(name)
+        print(nu_measured)
         nu_analytical = (1 / omega - 0.5)/3
 
         measured_values.append(nu_measured)
@@ -111,4 +114,4 @@ def plot_stream():
 
 
 if __name__ == "__main__":
-    plot_shear_wave_amplitude()
+    plot_viscosity()

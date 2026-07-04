@@ -3,7 +3,7 @@
 
 struct AppState {
     int timestep = 0;
-    int max_steps = 40000;
+    int max_steps = 1000;
     int measurement_interval = 1000;
     int draw_steps = 2000;
 };

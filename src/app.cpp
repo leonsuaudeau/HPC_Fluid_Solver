@@ -13,8 +13,9 @@ App::App() = default;
 int App::run(int argc, char *argv[]) {
     Kokkos::initialize(argc, argv);
     {
-        int width = 128;
-        int height = 128;
+        int width = 64;
+        int height = 64;
+        float omega = 1.7f;
 
         iVec c_x("c_x", 9);
         iVec c_y("c_y", 9);
@@ -42,92 +43,101 @@ int App::run(int argc, char *argv[]) {
 
         Vec_host measurements_host("m", state.max_steps);
 
-        // Grid initializations
-        float n_y_inv = 1.0f / static_cast<float>(height);
-        float k = 2.0f * 3.14159265359f * n_y_inv;
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                rho_host(x, y) = 1.0f;
-                v_x_host(x, y) = eq::sinusoidal(y, 1.0f, k);
-                v_y_host(x, y) = 0.0f;
+        for (int i = 1; i <= 101; i++) {
+            omega = static_cast<float>(i) / 50.0f;
+            std::cout << "Omega: " << omega << std::endl;
 
-                for (int i = 0; i < 9; i++) {
-                    f_host(x, y, i) = eq::calculate_eq_distrib(
-                        rho_host(x, y),
-                        v_x_host(x, y), v_y_host(x, y),
-                        c_x_host(i), c_y_host(i),
-                        w_host(i));
+            // Grid initializations
+            float n_y_inv = 1.0f / static_cast<float>(height);
+            float k = 2.0f * 3.14159265359f * n_y_inv;
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
+                    rho_host(x, y) = 1.0f;
+                    v_x_host(x, y) = eq::sinusoidal(y, 0.1f, k);
+                    v_y_host(x, y) = 0.0f;
+
+                    for (int i = 0; i < 9; i++) {
+                        f_host(x, y, i) = eq::calculate_eq_distrib(
+                            rho_host(x, y),
+                            v_x_host(x, y), v_y_host(x, y),
+                            c_x_host(i), c_y_host(i),
+                            w_host(i));
+                    }
                 }
             }
-        }
 
-        Kokkos::deep_copy(rho, rho_host);
-        Kokkos::deep_copy(v_x, v_x_host);
-        Kokkos::deep_copy(v_y, v_y_host);
-        Kokkos::deep_copy(f, f_host);
+            Kokkos::deep_copy(rho, rho_host);
+            Kokkos::deep_copy(v_x, v_x_host);
+            Kokkos::deep_copy(v_y, v_y_host);
+            Kokkos::deep_copy(f, f_host);
 
-        double global_mass = 0.0f;
+            double global_mass = 0.0f;
 
-        float omega = 1.7f;
+            std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
 
-        std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
-
-        while (state.timestep < state.max_steps) {
-            // Simulation step
-            Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({0,0}, {width, height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::update_density(rho, f, x, y);
-                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
-            });
-
-            if (state.timestep % state.measurement_interval == 0) {
-                Kokkos::parallel_reduce("sum of masses",
+            while (state.timestep < state.max_steps) {
+                // Simulation step
+                Kokkos::parallel_for("density + velocity + relaxation step",
                     Kokkos::MDRangePolicy({0,0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    sum += rho(x, y);
-                },
-                global_mass);
-                std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+                    KOKKOS_LAMBDA(const int x, const int y) {
+                    eq::update_density(rho, f, x, y);
+                    eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
+                });
+
+                if (state.timestep % state.measurement_interval == 0) {
+                    Kokkos::parallel_reduce("sum of masses",
+                        Kokkos::MDRangePolicy({0,0}, {width, height}),
+                        KOKKOS_LAMBDA(const int x, const int y, double& sum) {
+                        sum += rho(x, y);
+                    },
+                    global_mass);
+                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+                }
+
+                Kokkos::parallel_for("density + velocity + relaxation step",
+                    Kokkos::MDRangePolicy({0,0}, {width, height}),
+                    KOKKOS_LAMBDA(const int x, const int y) {
+                    eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
+                });
+
+                Kokkos::parallel_for("streaming step",
+                    Kokkos::MDRangePolicy({0,0}, {width, height}),
+                    KOKKOS_LAMBDA(const int x, const int y) {
+                    eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
+                });
+
+                // TODO: perhaps separate streaming and boundary handling
+
+                std::swap(f, f_new);
+
+                float amplitude_sum = 0.0f;
+                Kokkos::parallel_reduce("sin amplitude",
+                    Kokkos::MDRangePolicy({0, 0}, {width, height}),
+                    KOKKOS_LAMBDA(const int x, const int y, float& local_sum) {
+                    local_sum += v_x(x, y) * sinf(k * static_cast<float>(y));},amplitude_sum);
+
+                measurements_host(state.timestep) =
+                    amplitude_sum * (1.0f / static_cast<float>(width)) *
+                        (1.0f / static_cast<float>(height)) * 2.0f;
+
+                /*
+                if (state.timestep % state.draw_steps == 0) {
+                    Kokkos::deep_copy(v_x_host, v_x);
+                    Kokkos::deep_copy(v_y_host, v_y);
+
+                    int frame = state.timestep / state.draw_steps;
+                    out::write_to("v_x", v_x_host, width, height, frame);
+                    out::write_to("v_y", v_y_host, width, height, frame);
+
+                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
+                }
+                */
+                state.timestep++;
             }
-
-            Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({0,0}, {width, height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
-            });
-
-            Kokkos::parallel_for("streaming step",
-                Kokkos::MDRangePolicy({0,0}, {width, height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
-            });
-
-            // TODO: perhaps separate streaming and boundary handling
-
-            std::swap(f, f_new);
-
-            float amplitude_sum = 0.0f;
-            Kokkos::parallel_reduce("sin amplitude",
-                Kokkos::MDRangePolicy({0, 0}, {width, height}),
-                KOKKOS_LAMBDA(const int x, const int y, float& local_sum) {
-                local_sum += v_x(x, y) * sinf(k * static_cast<float>(y));},amplitude_sum);
-
-            measurements_host(state.timestep) =
-                amplitude_sum * (1.0f / static_cast<float>(width)) *
-                    (1.0f / static_cast<float>(height)) * 2.0f;
-
-            if (state.timestep % state.draw_steps == 0) {
-                Kokkos::deep_copy(v_x_host, v_x);
-                Kokkos::deep_copy(v_y_host, v_y);
-
-                int frame = state.timestep / state.draw_steps;
-                out::write_to("v_x", v_x_host, width, height, frame);
-                out::write_to("v_y", v_y_host, width, height, frame);
-
-                std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
-            }
-            state.timestep++;
+            state.timestep = 0;
+            std::ostringstream filename;
+            filename << "shear_wave/different_k/amplitude_" << std::setw(3) << std::setfill('0') << std::to_string(i);
+            out::write_to(filename.str(), measurements_host);
         }
 
         // For moving lid plotting, comment out the other exports and uncomment this
@@ -141,7 +151,7 @@ int App::run(int argc, char *argv[]) {
 
         std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
         */
-        out::write_to("shear_wave/amplitude", measurements_host);
+        //out::write_to("shear_wave/amplitude", measurements_host);
     }
 
     Kokkos::finalize();
