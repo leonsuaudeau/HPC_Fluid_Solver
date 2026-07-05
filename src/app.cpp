@@ -32,8 +32,8 @@ int App::run(int argc, char *argv[]) {
         Distribution_t f("f", width, height, 9);
         Distribution_t f_new("f_new", width, height, 9);
 
-        int boundary_conditions [2] = {0, 0}; // (horizontal, vertical) 0 = periodic, 1 = wall
-        float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
+        Kokkos::Array<int, 2> boundary_conditions = {1, 1}; // (horizontal, vertical) 0 = periodic, 1 = wall
+        Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
         // TODO: fix corners, use 2 vel. values per wall for this!
 
         auto rho_host = Kokkos::create_mirror_view(rho);
@@ -162,8 +162,8 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
 
     {
         // boundary definition -------------------------------------------------
-        int boundary_conditions [2] = {1,1}; // (horizontal, vertical) 0 = periodic, 1 = wall
-        float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
+        Kokkos::Array<int, 2> boundary_conditions = {1, 1}; // (horizontal, vertical) 0 = periodic, 1 = wall
+        Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
 
         // domain decomposition setup ------------------------------------------
         int rank, size;
@@ -307,8 +307,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
     Kokkos::initialize(argc, argv);
     {
         // boundary definition -------------------------------------------------
-        int boundary_conditions [2] = {1,1}; // (horizontal, vertical) 0 = periodic, 1 = wall
-        float boundary_values [4] = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
+        Kokkos::Array<int, 2> boundary_conditions = {1, 1}; // (horizontal, vertical) 0 = periodic, 1 = wall
+        Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
 
         // domain decomposition setup ------------------------------------------
         int size;

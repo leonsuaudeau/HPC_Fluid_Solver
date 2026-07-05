@@ -105,8 +105,8 @@ inline void exchange_halos_tiles_y_pass(const Distribution_t &f, const MPI_Comm 
         Kokkos::MDRangePolicy({0, 0}, {tile_width + 2, 3}),
         KOKKOS_LAMBDA(const int x, const int i) {
         const int index = x * 3 + i;
-        send_buffer_up(index) = f(x, 1, move_up_dirs[i]);
-        send_buffer_down(index) = f(x, tile_height, move_down_dirs[i]);
+        send_buffer_down(index) = f(x, 1, move_down_dirs[i]);
+        send_buffer_up(index) = f(x, tile_height, move_up_dirs[i]);
     });
     Kokkos::fence();
 

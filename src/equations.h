@@ -60,8 +60,8 @@ float calculate_correction_term(
 KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries(
     const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const int boundary_conditions[2],
-    const float boundary_values[4], const iVec &opposite_i,
+    const iVec &c_x, const iVec &c_y, const Kokkos::Array<int, 2> &boundary_conditions,
+    const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
     const int x, const int y, const int grid_width, const int grid_height) {
     for (int i = 0; i < 9; i++) {
         int x_source = x - c_x(i);
@@ -106,8 +106,8 @@ void streaming_with_boundaries(
 KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries_mpi_strips(
     const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const int boundary_conditions[2],
-    const float boundary_values[4], const iVec &opposite_i,
+    const iVec &c_x, const iVec &c_y, const Kokkos::Array<int, 2> &boundary_conditions,
+    const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
     const int local_x, const int x_offset, const int y, const int grid_width, const int grid_height) {
 
     const int global_x = local_x + x_offset - 1;
@@ -159,8 +159,8 @@ void streaming_with_boundaries_mpi_strips(
 KOKKOS_INLINE_FUNCTION
 void streaming_with_boundaries_mpi_tiles(
     const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const int boundary_conditions[2],
-    const float boundary_values[4], const iVec &opposite_i,
+    const iVec &c_x, const iVec &c_y, const Kokkos::Array<int, 2> &boundary_conditions,
+    const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
     const int local_x, const int local_y, const int x_offset, const int y_offset,
     const int grid_width, const int grid_height) {
 
@@ -249,7 +249,7 @@ float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, cons
     return sum * n_x_inv * n_y_inv * 2.0f;
 }
 
-inline float calculate_reynolds_number(const float lid_vel[4], const int L, const float omega) {
+inline float calculate_reynolds_number(const Kokkos::Array<float, 4> &lid_vel, const int L, const float omega) {
     const float nu = 1.0f/3.0f * (1.0f/omega - 1.0f/2.0f);
     return std::max(std::max(lid_vel[0], lid_vel[1]), std::max(lid_vel[2], lid_vel[3])) * static_cast<float>(L) / nu;
 }
