@@ -43,7 +43,7 @@ int App::run(int argc, char *argv[]) {
 
         Vec_host measurements_host("m", state.max_steps);
 
-        for (int i = 1; i <= 101; i++) {
+        for (int i = 1; i < 100; i++) {
             omega = static_cast<float>(i) / 50.0f;
             std::cout << "Omega: " << omega << std::endl;
 
@@ -77,13 +77,17 @@ int App::run(int argc, char *argv[]) {
 
             while (state.timestep < state.max_steps) {
                 // Simulation step
-                Kokkos::parallel_for("density + velocity + relaxation step",
+                Kokkos::parallel_for("one-step pull scheme step",
                     Kokkos::MDRangePolicy({0,0}, {width, height}),
                     KOKKOS_LAMBDA(const int x, const int y) {
-                    eq::update_density(rho, f, x, y);
-                    eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
+                    eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
+                    eq::update_density(rho, f_new, x, y);
+                    eq::update_velocity(v_x, v_y, c_x, c_y, rho, f_new, x, y);
+                    eq::relaxation(f_new, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
                 });
+                std::swap(f, f_new);
 
+                // Now measure some values for testing
                 if (state.timestep % state.measurement_interval == 0) {
                     Kokkos::parallel_reduce("sum of masses",
                         Kokkos::MDRangePolicy({0,0}, {width, height}),
@@ -93,22 +97,6 @@ int App::run(int argc, char *argv[]) {
                     global_mass);
                     std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
                 }
-
-                Kokkos::parallel_for("density + velocity + relaxation step",
-                    Kokkos::MDRangePolicy({0,0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y) {
-                    eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
-                });
-
-                Kokkos::parallel_for("streaming step",
-                    Kokkos::MDRangePolicy({0,0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y) {
-                    eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
-                });
-
-                // TODO: perhaps separate streaming and boundary handling
-
-                std::swap(f, f_new);
 
                 float amplitude_sum = 0.0f;
                 Kokkos::parallel_reduce("sin amplitude",
@@ -234,19 +222,37 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
                     c_x(i), c_y(i), w(i));
             }
         });
+        // exchange once before loop for valid halos for first streaming step
+        Kokkos::fence();
+        dom::exchange_halos_vert_strips(f,
+            send_buffer_left, send_buffer_right,
+            receive_buffer_left, receive_buffer_right,
+            left, right, strip_width, grid_height, halo_size);
 
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
 
         // Main simulation loop ------------------------------------------------
         for (int step = 0; step < state.max_steps; step++) {
+            Kokkos::parallel_for("one-step pull scheme step",
+                    Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
+                    KOKKOS_LAMBDA(const int x, const int y) {
+                    eq::streaming_with_boundaries_mpi_strips(
+                        f, f_new, w, c_x, c_y,
+                        boundary_conditions, boundary_values, opposite_i,
+                        x, x_offset, y, grid_width, grid_height);
+                    eq::update_density(rho, f_new, x, y);
+                    eq::update_velocity(v_x, v_y, c_x, c_y, rho, f_new, x, y);
+                    eq::relaxation(f_new, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
+                });
 
-            Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::update_density(rho, f, x, y);
-                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
-            });
+            Kokkos::fence();
+            dom::exchange_halos_vert_strips(f_new,
+                send_buffer_left, send_buffer_right,
+                receive_buffer_left, receive_buffer_right,
+                left, right, strip_width, grid_height, halo_size);
+
+            std::swap(f, f_new);
 
             if (step % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
@@ -261,27 +267,6 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
                     std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
                 }
             }
-
-            Kokkos::parallel_for("density + velocity + relaxation step",
-                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
-            });
-
-            Kokkos::fence();
-
-            dom::exchange_halos_vert_strips(f, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, strip_width, grid_height, halo_size);
-
-            Kokkos::parallel_for("streaming step",
-                Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries_mpi_strips(
-                    f, f_new, w, c_x, c_y,
-                    boundary_conditions, boundary_values, opposite_i,
-                    x, x_offset, y, grid_width, grid_height);
-            });
-
-            std::swap(f, f_new);
         }
 
         double end_time = MPI_Wtime();
@@ -387,6 +372,16 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     c_x(i), c_y(i), w(i));
             }
         });
+        Kokkos::fence();
+        // 2-pass exchange, first horizontal, then vertical including ghost corners
+        dom::exchange_halos_tiles_x_pass(f_new, cart,
+            send_buffer_left, send_buffer_right,
+            receive_buffer_left, receive_buffer_right,
+            left, right, tile_width, tile_height, halo_size);
+        dom::exchange_halos_tiles_y_pass(f_new, cart,
+            send_buffer_up, send_buffer_down,
+            receive_buffer_up, receive_buffer_down,
+            up, down, tile_width, tile_height, halo_size);
 
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
@@ -394,12 +389,29 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         // Main simulation loop ------------------------------------------------
         for (int step = 0; step < state.max_steps; step++) {
 
-            Kokkos::parallel_for("density + velocity",
+            Kokkos::parallel_for("one-step pull scheme step",
                 Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::update_density(rho, f, x, y);
-                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f, x, y);
+                eq::streaming_with_boundaries_mpi_tiles(
+                    f, f_new, w, c_x, c_y,
+                    boundary_conditions, boundary_values, opposite_i,
+                    x, y, x_offset, y_offset, grid_width, grid_height);
+                eq::update_density(rho, f_new, x, y);
+                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f_new, x, y);
+                eq::relaxation(f_new, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
             });
+            Kokkos::fence();
+
+            dom::exchange_halos_tiles_x_pass(f_new, cart,
+                send_buffer_left, send_buffer_right,
+                receive_buffer_left, receive_buffer_right,
+                left, right, tile_width, tile_height, halo_size);
+            dom::exchange_halos_tiles_y_pass(f_new, cart,
+                send_buffer_up, send_buffer_down,
+                receive_buffer_up, receive_buffer_down,
+                up, down, tile_width, tile_height, halo_size);
+
+            std::swap(f, f_new);
 
             if (step % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
@@ -414,29 +426,6 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
                 }
             }
-
-            Kokkos::parallel_for("relaxation step",
-                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::relaxation(f, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
-            });
-
-            Kokkos::fence();
-
-            // 2-pass exchange, first horizontal, then vertical including ghost corners
-            dom::exchange_halos_tiles_x_pass(f, cart, send_buffer_left, send_buffer_right, receive_buffer_left, receive_buffer_right, left, right, tile_width, tile_height, halo_size);
-            dom::exchange_halos_tiles_y_pass(f, cart, send_buffer_up, send_buffer_down, receive_buffer_up, receive_buffer_down, up, down, tile_width, tile_height, halo_size);
-
-            Kokkos::parallel_for("streaming step",
-                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
-                KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries_mpi_tiles(
-                    f, f_new, w, c_x, c_y,
-                    boundary_conditions, boundary_values, opposite_i,
-                    x, y, x_offset, y_offset, grid_width, grid_height);
-            });
-
-            std::swap(f, f_new);
         }
 
         double end_time = MPI_Wtime();

@@ -61,7 +61,7 @@ def plot_viscosity():
     analytical_values = []
     omegas = []
 
-    for o in range(1, 101):
+    for o in range(1, 100):
         omega = o / 50
         name = "outputs/shear_wave/different_k/amplitude_" + f"{o:03d}" + ".bin"
         print(name)
