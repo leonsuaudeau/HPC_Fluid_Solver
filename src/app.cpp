@@ -339,17 +339,17 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         int x_offset = coords[0] * base_tile_width + std::min(rank, remainder_x);
         int y_offset = coords[1] * base_tile_height + std::min(rank, remainder_y);
 
-        Vec send_buffer_left("send_buffer_left", tile_height * 9);
-        Vec send_buffer_right("send_buffer_right", tile_height * 9);
-        Vec receive_buffer_left("receive_buffer_left", tile_height * 9);
-        Vec receive_buffer_right("receive_buffer_right", tile_height * 9);
+        Vec send_buffer_left("send_buffer_left", tile_height * 3);
+        Vec send_buffer_right("send_buffer_right", tile_height * 3);
+        Vec receive_buffer_left("receive_buffer_left", tile_height * 3);
+        Vec receive_buffer_right("receive_buffer_right", tile_height * 3);
 
-        Vec send_buffer_up("send_buffer_up", (tile_width + 2) * 9);
-        Vec send_buffer_down("send_buffer_down", (tile_width + 2) * 9);
-        Vec receive_buffer_up("receive_buffer_up", (tile_width + 2) * 9);
-        Vec receive_buffer_down("receive_buffer_down", (tile_width + 2) * 9);
+        Vec send_buffer_up("send_buffer_up", (tile_width + 2) * 3);
+        Vec send_buffer_down("send_buffer_down", (tile_width + 2) * 3);
+        Vec receive_buffer_up("receive_buffer_up", (tile_width + 2) * 3);
+        Vec receive_buffer_down("receive_buffer_down", (tile_width + 2) * 3);
 
-        int halo_size[2] = {tile_height * 9, (tile_width + 2) * 9};
+        const int halo_size[2] = {tile_height * 3, (tile_width + 2) * 3};
 
         int left, right, up, down;
         MPI_Cart_shift(cart, 0, 1, &left, &right);
@@ -369,6 +369,11 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         auto c_y_host = d2q9::c_y_host_init(c_y);
         auto w_host = d2q9::w_host_init(w);
         auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
+
+        Kokkos::Array<int, 3> left_dirs = {3,6,7};
+        Kokkos::Array<int, 3> right_dirs = {1,5,8};
+        Kokkos::Array<int, 3> up_dirs = {2,5,6};
+        Kokkos::Array<int, 3> down_dirs = {4,7,8};
 
         // Main view initializations -------------------------------------------
         Density_t rho("rho", tile_width + 2, tile_height + 2);
@@ -393,14 +398,16 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         });
         Kokkos::fence();
         // 2-pass exchange, first horizontal, then vertical including ghost corners
-        dom::exchange_halos_tiles_x_pass(f_new, cart,
+        dom::exchange_halos_tiles_x_pass(f, cart,
             send_buffer_left, send_buffer_right,
             receive_buffer_left, receive_buffer_right,
-            left, right, tile_width, tile_height, halo_size);
-        dom::exchange_halos_tiles_y_pass(f_new, cart,
+            left, right, tile_width, tile_height,
+            halo_size, left_dirs, right_dirs);
+        dom::exchange_halos_tiles_y_pass(f, cart,
             send_buffer_up, send_buffer_down,
             receive_buffer_up, receive_buffer_down,
-            up, down, tile_width, tile_height, halo_size);
+            up, down, tile_width, tile_height,
+            halo_size, up_dirs, down_dirs);
 
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
@@ -424,11 +431,13 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
             dom::exchange_halos_tiles_x_pass(f_new, cart,
                 send_buffer_left, send_buffer_right,
                 receive_buffer_left, receive_buffer_right,
-                left, right, tile_width, tile_height, halo_size);
+                left, right, tile_width, tile_height,
+                halo_size, left_dirs, right_dirs);
             dom::exchange_halos_tiles_y_pass(f_new, cart,
                 send_buffer_up, send_buffer_down,
                 receive_buffer_up, receive_buffer_down,
-                up, down, tile_width, tile_height, halo_size);
+                up, down, tile_width, tile_height,
+                halo_size, up_dirs, down_dirs);
 
             std::swap(f, f_new);
 
