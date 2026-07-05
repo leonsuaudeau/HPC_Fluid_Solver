@@ -353,7 +353,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
 
         int left, right, up, down;
         MPI_Cart_shift(cart, 0, 1, &left, &right);
-        MPI_Cart_shift(cart, 1, 1, &up, &down);
+        MPI_Cart_shift(cart, 1, 1, &down, &up);
 
         double local_mass = 0.0;
         double global_mass = 0.0;
@@ -370,10 +370,10 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         auto w_host = d2q9::w_host_init(w);
         auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
 
-        Kokkos::Array<int, 3> left_dirs = {3,6,7};
-        Kokkos::Array<int, 3> right_dirs = {1,5,8};
-        Kokkos::Array<int, 3> up_dirs = {2,5,6};
-        Kokkos::Array<int, 3> down_dirs = {4,7,8};
+        Kokkos::Array<int, 3> move_left_dirs = {3,6,7};
+        Kokkos::Array<int, 3> move_right_dirs = {1,5,8};
+        Kokkos::Array<int, 3> move_up_dirs = {2,5,6};
+        Kokkos::Array<int, 3> move_down_dirs = {4,7,8};
 
         // Main view initializations -------------------------------------------
         Density_t rho("rho", tile_width + 2, tile_height + 2);
@@ -402,12 +402,12 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
             send_buffer_left, send_buffer_right,
             receive_buffer_left, receive_buffer_right,
             left, right, tile_width, tile_height,
-            halo_size, left_dirs, right_dirs);
+            halo_size, move_left_dirs, move_right_dirs);
         dom::exchange_halos_tiles_y_pass(f, cart,
             send_buffer_up, send_buffer_down,
             receive_buffer_up, receive_buffer_down,
             up, down, tile_width, tile_height,
-            halo_size, up_dirs, down_dirs);
+            halo_size, move_up_dirs, move_down_dirs);
 
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
@@ -432,12 +432,12 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 send_buffer_left, send_buffer_right,
                 receive_buffer_left, receive_buffer_right,
                 left, right, tile_width, tile_height,
-                halo_size, left_dirs, right_dirs);
+                halo_size, move_left_dirs, move_right_dirs);
             dom::exchange_halos_tiles_y_pass(f_new, cart,
                 send_buffer_up, send_buffer_down,
                 receive_buffer_up, receive_buffer_down,
                 up, down, tile_width, tile_height,
-                halo_size, up_dirs, down_dirs);
+                halo_size, move_up_dirs, move_down_dirs);
 
             std::swap(f, f_new);
 
