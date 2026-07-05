@@ -72,6 +72,7 @@ int App::run(int argc, char *argv[]) {
             Kokkos::deep_copy(f, f_host);
 
             double global_mass = 0.0f;
+            double global_kinetic_energy = 0.0f;
 
             std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
 
@@ -91,11 +92,19 @@ int App::run(int argc, char *argv[]) {
                 if (state.timestep % state.measurement_interval == 0) {
                     Kokkos::parallel_reduce("sum of masses",
                         Kokkos::MDRangePolicy({0,0}, {width, height}),
-                        KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                        sum += rho(x, y);
+                        KOKKOS_LAMBDA(const int x, const int y, double& local_mass) {
+                        local_mass += rho(x, y);
                     },
                     global_mass);
-                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+
+                    Kokkos::parallel_reduce("sum of kinetic energies",
+                        Kokkos::MDRangePolicy({0,0}, {width, height}),
+                        KOKKOS_LAMBDA(const int x, const int y, double& local_energy) {
+                        local_energy += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
+                    },
+                    global_kinetic_energy);
+
+                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
 
                 float amplitude_sum = 0.0f;
@@ -188,8 +197,10 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
             right = rank < size - 1 ? right : MPI_PROC_NULL;
         }
 
-        double local_mass = 0.0f;
-        double global_mass = 0.0f;
+        double local_mass = 0.0;
+        double global_mass = 0.0;
+        double local_kinetic_energy = 0.0;
+        double global_kinetic_energy = 0.0;
 
         // d2q9 initialization -------------------------------------------------
         iVec c_x("c_x", 9);
@@ -259,12 +270,18 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
                     Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     sum += rho(x, y);
-                },
-                local_mass);
+                },local_mass);
+                Kokkos::parallel_reduce("sum of kinetic energies",
+                    Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
+                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
+                    sum += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
+                },local_kinetic_energy);
                 Kokkos::fence();
+
                 MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+                MPI_Reduce(&local_kinetic_energy, &global_kinetic_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
                 if (rank == 0) {
-                    std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
         }
@@ -338,8 +355,10 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         MPI_Cart_shift(cart, 0, 1, &left, &right);
         MPI_Cart_shift(cart, 1, 1, &up, &down);
 
-        double local_mass = 0.0f;
-        double global_mass = 0.0f;
+        double local_mass = 0.0;
+        double global_mass = 0.0;
+        double local_kinetic_energy = 0.0;
+        double global_kinetic_energy = 0.0;
 
         // d2q9 initialization -------------------------------------------------
         iVec c_x("c_x", 9);
@@ -418,12 +437,18 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     sum += rho(x, y);
-                },
-                local_mass);
+                },local_mass);
+                Kokkos::parallel_reduce("sum of kinetic energies",
+                    Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                    KOKKOS_LAMBDA(const int x, const int y, double& sum) {
+                    sum += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
+                },local_kinetic_energy);
                 Kokkos::fence();
+
                 MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, cart);
+                MPI_Reduce(&local_kinetic_energy, &global_kinetic_energy, 1, MPI_DOUBLE, MPI_SUM, 0, cart);
                 if (rank == 0) {
-                    std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << std::endl;
+                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
         }
