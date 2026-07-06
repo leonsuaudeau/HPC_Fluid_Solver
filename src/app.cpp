@@ -327,8 +327,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         MPI_Comm_rank(cart, &rank);
         MPI_Cart_coords(cart, rank, 2, coords);
 
-        int grid_width = 128;
-        int grid_height = 128;
+        int grid_width = 14400;
+        int grid_height = 14400;
         int base_tile_width = grid_width / dims[0];
         int base_tile_height = grid_height / dims[1];
         int remainder_x = grid_width % dims[0];
