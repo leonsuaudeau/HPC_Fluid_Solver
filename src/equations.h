@@ -255,9 +255,12 @@ inline float calculate_reynolds_number(const Kokkos::Array<float, 4> &lid_vel, c
 }
 
 inline double blups(const int width, const int height, const int max_steps, const double walltime) {
-    const long lu = width * height * max_steps;
-    const double lups = static_cast<double>(lu) / walltime;
-    return lups / 1000000000.0;
+    const std::int64_t lattice_updates =
+        static_cast<std::int64_t>(width) *
+        static_cast<std::int64_t>(height) *
+        static_cast<std::int64_t>(max_steps);
+
+    return static_cast<double>(lattice_updates) / walltime / 1.0e9;
 }
 
 }
