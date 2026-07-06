@@ -254,6 +254,12 @@ inline float calculate_reynolds_number(const Kokkos::Array<float, 4> &lid_vel, c
     return std::max(std::max(lid_vel[0], lid_vel[1]), std::max(lid_vel[2], lid_vel[3])) * static_cast<float>(L) / nu;
 }
 
+inline double blups(const int width, const int height, const int max_steps, const double walltime) {
+    const long lu = width * height * max_steps;
+    const double lups = static_cast<double>(lu) / walltime;
+    return lups / 1000000000.0;
+}
+
 }
 
 #endif // HPC_FLUID_SOLVER_EQUATIONS_H

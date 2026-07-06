@@ -327,8 +327,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         MPI_Comm_rank(cart, &rank);
         MPI_Cart_coords(cart, rank, 2, coords);
 
-        int grid_width = 14400;
-        int grid_height = 14400;
+        int grid_width = 30000;
+        int grid_height = 30000;
         int base_tile_width = grid_width / dims[0];
         int base_tile_height = grid_height / dims[1];
         int remainder_x = grid_width % dims[0];
@@ -457,7 +457,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, cart);
                 MPI_Reduce(&local_kinetic_energy, &global_kinetic_energy, 1, MPI_DOUBLE, MPI_SUM, 0, cart);
                 if (rank == 0) {
-                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
+                    std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
         }
@@ -469,6 +469,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         MPI_Reduce(&local_elapsed_time, &global_elapsed_time, 1, MPI_DOUBLE, MPI_MAX, 0, cart);
         if (rank == 0) {
             std::cout << "Elapsed time: " << global_elapsed_time << " seconds" << std::endl;
+            std::cout << "BLUPS: " << eq::blups(grid_width, grid_height, state.max_steps, global_elapsed_time);
         }
     }
     Kokkos::finalize();
