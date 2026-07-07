@@ -334,10 +334,10 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         int remainder_x = grid_width % dims[0];
         int remainder_y = grid_height % dims[1];
 
-        int tile_width = base_tile_width + (rank < remainder_x ? 1 : 0);
-        int tile_height = base_tile_height + (rank < remainder_y ? 1 : 0);
-        int x_offset = coords[0] * base_tile_width + std::min(rank, remainder_x);
-        int y_offset = coords[1] * base_tile_height + std::min(rank, remainder_y);
+        int tile_width = base_tile_width + (coords[0] < remainder_x ? 1 : 0);
+        int tile_height = base_tile_height + (coords[1] < remainder_y ? 1 : 0);
+        int x_offset = coords[0] * base_tile_width + std::min(coords[0], remainder_x);
+        int y_offset = coords[1] * base_tile_height + std::min(coords[1], remainder_y);
 
         Vec send_buffer_left("send_buffer_left", tile_height * 3);
         Vec send_buffer_right("send_buffer_right", tile_height * 3);
