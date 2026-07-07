@@ -157,14 +157,6 @@ void streaming_with_boundaries_mpi_strips(
 }
 
 KOKKOS_INLINE_FUNCTION
-float relax_single_tile(const float f_i, const float rho,
-    const float u_x, const float u_y, const int c_x_i, const int c_y_i,
-    const float omega, const float w_i, const float norm_u_squared) {
-    const float c_i_dot_u = c_x_i * u_x + c_y_i * u_y;
-    return f_i + omega * (w_i * rho * (1 + 3 * c_i_dot_u + 4.5f * c_i_dot_u * c_i_dot_u - 1.5f * norm_u_squared) - f_i);
-}
-
-KOKKOS_INLINE_FUNCTION
 void main_kernel_interior(const Distribution_t &f, const Distribution_t &f_new,
     const int local_x, const int local_y, const float omega) {
     // pull
@@ -180,21 +172,39 @@ void main_kernel_interior(const Distribution_t &f, const Distribution_t &f_new,
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
-    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) / rho;
-    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) / rho;
+    const float rho_inf = 1.0f / rho;
+    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inf;
+    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inf;
 
     // relaxation
-    const float norm_u_squared = u_x * u_x + u_y * u_y;
+    const float u_x_3 = u_x * 3.0f;
+    const float u_y_3 = u_y * 3.0f;
+    const float one_minus_u_sq_1_5 = 1.0f - 1.5f * (u_x * u_x + u_y * u_y);
 
-    f_new(local_x, local_y, 0) = relax_single_tile(f_0, rho, u_x, u_y, 0, 0, omega, 4.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 1) = relax_single_tile(f_1, rho, u_x, u_y, 1, 0, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 2) = relax_single_tile(f_2, rho, u_x, u_y, 0, 1, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 3) = relax_single_tile(f_3, rho, u_x, u_y, -1, 0, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 4) = relax_single_tile(f_4, rho, u_x, u_y, 0, -1, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 5) = relax_single_tile(f_5, rho, u_x, u_y, 1, 1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 6) = relax_single_tile(f_6, rho, u_x, u_y, -1, 1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 7) = relax_single_tile(f_7, rho, u_x, u_y, -1, -1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 8) = relax_single_tile(f_8, rho, u_x, u_y, 1, -1, omega, 1.0f / 36.0f, norm_u_squared);
+    constexpr float w_0 = 4.0 / 9.0f;
+    constexpr float w_1_4 = 1.0f / 9.0f;
+    constexpr float w_5_8 = 1.0f / 36.0f;
+
+    const float c_u_3_1 = u_x_3;
+    const float c_u_3_2 = u_y_3;
+    const float c_u_3_3 = -u_x_3;
+    const float c_u_3_4 = -u_y_3;
+    const float c_u_3_5 = u_x_3 + u_y_3;
+    const float c_u_3_6 = -u_x_3 + u_y_3;
+    const float c_u_3_7 = -u_x_3 - u_y_3;
+    const float c_u_3_8 = u_x_3 - u_y_3;
+
+    const float one_minus_omega = 1.0f - omega;
+
+    f_new(local_x, local_y, 0) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
+    f_new(local_x, local_y, 1) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 2) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 3) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 4) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 5) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 6) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 7) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 8) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
 }
 
 KOKKOS_INLINE_FUNCTION
@@ -268,21 +278,39 @@ void main_kernel_boundary(const Distribution_t &f, const Distribution_t &f_new,
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
-    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) / rho;
-    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) / rho;
+    const float rho_inf = 1.0f / rho;
+    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inf;
+    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inf;
 
     // relaxation
-    const float norm_u_squared = u_x * u_x + u_y * u_y;
+    const float u_x_3 = u_x * 3.0f;
+    const float u_y_3 = u_y * 3.0f;
+    const float one_minus_u_sq_1_5 = 1.0f - 1.5f * (u_x * u_x + u_y * u_y);
 
-    f_new(local_x, local_y, 0) = relax_single_tile(f_0, rho, u_x, u_y, 0, 0, omega, 4.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 1) = relax_single_tile(f_1, rho, u_x, u_y, 1, 0, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 2) = relax_single_tile(f_2, rho, u_x, u_y, 0, 1, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 3) = relax_single_tile(f_3, rho, u_x, u_y, -1, 0, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 4) = relax_single_tile(f_4, rho, u_x, u_y, 0, -1, omega, 1.0f / 9.0f, norm_u_squared);
-    f_new(local_x, local_y, 5) = relax_single_tile(f_5, rho, u_x, u_y, 1, 1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 6) = relax_single_tile(f_6, rho, u_x, u_y, -1, 1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 7) = relax_single_tile(f_7, rho, u_x, u_y, -1, -1, omega, 1.0f / 36.0f, norm_u_squared);
-    f_new(local_x, local_y, 8) = relax_single_tile(f_8, rho, u_x, u_y, 1, -1, omega, 1.0f / 36.0f, norm_u_squared);
+    constexpr float w_0 = 4.0 / 9.0f;
+    constexpr float w_1_4 = 1.0f / 9.0f;
+    constexpr float w_5_8 = 1.0f / 36.0f;
+
+    const float c_u_3_1 = u_x_3;
+    const float c_u_3_2 = u_y_3;
+    const float c_u_3_3 = -u_x_3;
+    const float c_u_3_4 = -u_y_3;
+    const float c_u_3_5 = u_x_3 + u_y_3;
+    const float c_u_3_6 = -u_x_3 + u_y_3;
+    const float c_u_3_7 = -u_x_3 - u_y_3;
+    const float c_u_3_8 = u_x_3 - u_y_3;
+
+    const float one_minus_omega = 1.0f - omega;
+
+    f_new(local_x, local_y, 0) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
+    f_new(local_x, local_y, 1) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 2) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 3) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 4) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 5) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 6) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 7) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
+    f_new(local_x, local_y, 8) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
 }
 
 KOKKOS_INLINE_FUNCTION

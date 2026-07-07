@@ -381,7 +381,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
 
         // Grid initialization -------------------------------------------------
         Kokkos::parallel_for("grid initialization",
-            Kokkos::MDRangePolicy({1, 1}, {tile_width + 1, tile_height + 1}),
+        Kokkos::MDRangePolicy<Left_Policy>({1, 1}, {tile_width + 1, tile_height + 1}),
             KOKKOS_LAMBDA(const int x, const int y) {
                 for (int i = 0; i < 9; i++) {
                     constexpr float u_y = 0.0f;
@@ -414,7 +414,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         for (int step = 0; step < state.max_steps; step++) {
 
             Kokkos::parallel_for("fast interior update",
-                Kokkos::MDRangePolicy({2,2}, {tile_width, tile_height}),
+                Kokkos::MDRangePolicy<Left_Policy>({2,2}, {tile_width, tile_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
 
                 eq::main_kernel_interior(f, f_new, x, y, 1.7f);
@@ -459,7 +459,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
 
             if (step % state.measurement_interval == 0) {
                 Kokkos::parallel_reduce("sum of masses",
-                    Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                    Kokkos::MDRangePolicy<Left_Policy>({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     const float rho_cell =
                         f(x,y,0) + f(x,y,1) + f(x,y,2) +
@@ -468,7 +468,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     sum += rho_cell;
                 },local_mass);
                 Kokkos::parallel_reduce("sum of kinetic energies",
-                    Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+                    Kokkos::MDRangePolicy<Left_Policy>({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
                     const float f_0 = f(x,y,0);
                     const float f_1 = f(x,y,1);
@@ -484,7 +484,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) / rho;
                     const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) / rho;
 
-                    sum += 0.5 * rho * u_x * u_x * u_y * u_y;
+                    sum += 0.5 * rho * (u_x * u_x + u_y * u_y);
                 },local_kinetic_energy);
                 Kokkos::fence();
 
