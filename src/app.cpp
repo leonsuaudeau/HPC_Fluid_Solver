@@ -376,9 +376,6 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         Kokkos::Array<int, 3> move_down_dirs = {4,7,8};
 
         // Main view initializations -------------------------------------------
-        Density_t rho("rho", tile_width + 2, tile_height + 2);
-        Velocity_t v_x("v_x", tile_width + 2, tile_height + 2);
-        Velocity_t v_y("v_dty", tile_width + 2, tile_height + 2);
         Distribution_t f("f", tile_width + 2, tile_height + 2, 9);
         Distribution_t f_new("f_new", tile_width + 2, tile_height + 2, 9);
 
@@ -386,13 +383,12 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         Kokkos::parallel_for("grid initialization",
             Kokkos::MDRangePolicy({1, 1}, {tile_width + 1, tile_height + 1}),
             KOKKOS_LAMBDA(const int x, const int y) {
-            rho(x, y) = 1.0f;
-            v_x(x, y) = 0.0f;
-            v_y(x, y) = 0.0f;
-
-            for (int i = 0; i < 9; i++) {
-                f(x, y, i) = eq::calculate_eq_distrib(
-                    rho(x, y), v_x(x, y), v_y(x, y),
+                for (int i = 0; i < 9; i++) {
+                    constexpr float u_y = 0.0f;
+                    constexpr float u_x = 0.0f;
+                    constexpr float rho = 1.0f;
+                    f(x, y, i) = eq::calculate_eq_distrib(
+                    rho, u_x, u_y,
                     c_x(i), c_y(i), w(i));
             }
         });
@@ -409,23 +405,43 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
             up, down, tile_width, tile_height,
             halo_size, move_up_dirs, move_down_dirs);
 
+        const int boundary_count = 2 * tile_width + 2 * (tile_height - 2);
+
         MPI_Barrier(MPI_COMM_WORLD); // Barrier to start timing
         double start_time = MPI_Wtime();
 
         // Main simulation loop ------------------------------------------------
         for (int step = 0; step < state.max_steps; step++) {
 
-            Kokkos::parallel_for("one-step pull scheme step",
-                Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
+            Kokkos::parallel_for("fast interior update",
+                Kokkos::MDRangePolicy({2,2}, {tile_width, tile_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
-                eq::streaming_with_boundaries_mpi_tiles(
-                    f, f_new, w, c_x, c_y,
-                    boundary_conditions, boundary_values, opposite_i,
-                    x, y, x_offset, y_offset, grid_width, grid_height);
-                eq::update_density(rho, f_new, x, y);
-                eq::update_velocity(v_x, v_y, c_x, c_y, rho, f_new, x, y);
-                eq::relaxation(f_new, rho, v_x, v_y, c_x, c_y, w, 1.7f, x, y);
+
+                eq::main_kernel_interior(f, f_new, x, y, 1.7f);
             });
+
+            Kokkos::parallel_for("branching boundary update",
+                Kokkos::RangePolicy(0, boundary_count),
+                KOKKOS_LAMBDA(const int n) {
+                int x; int y;
+
+                if (n < tile_width) {
+                    x = n + 1; y = 1;
+                }else  if (n < 2 * tile_width) {
+                    x = n - tile_width + 1;
+                    y = tile_height;
+                }else if (n < 2 * tile_width + (tile_height - 2)) {
+                    x = 1;
+                    y = n - 2 * tile_width + 2;
+                }else {
+                    x = tile_width;
+                    y = n - (2 * tile_width + (tile_height - 2)) + 2;
+                }
+
+                eq::main_kernel_boundary(f, f_new, boundary_conditions, boundary_values,
+                    x, y, x_offset, y_offset, grid_width, grid_height, 1.7f);
+            });
+
             Kokkos::fence();
 
             dom::exchange_halos_tiles_x_pass(f_new, cart,
@@ -445,12 +461,30 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 Kokkos::parallel_reduce("sum of masses",
                     Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    sum += rho(x, y);
+                    const float rho_cell =
+                        f(x,y,0) + f(x,y,1) + f(x,y,2) +
+                        f(x,y,3) + f(x,y,4) + f(x,y,5) +
+                        f(x,y,6) + f(x,y,7) + f(x,y,8);
+                    sum += rho_cell;
                 },local_mass);
                 Kokkos::parallel_reduce("sum of kinetic energies",
                     Kokkos::MDRangePolicy({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    sum += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
+                    const float f_0 = f(x,y,0);
+                    const float f_1 = f(x,y,1);
+                    const float f_2 = f(x,y,2);
+                    const float f_3 = f(x,y,3);
+                    const float f_4 = f(x,y,4);
+                    const float f_5 = f(x,y,5);
+                    const float f_6 = f(x,y,6);
+                    const float f_7 = f(x,y,7);
+                    const float f_8 = f(x,y,8);
+
+                    const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
+                    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) / rho;
+                    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) / rho;
+
+                    sum += 0.5 * rho * u_x * u_x * u_y * u_y;
                 },local_kinetic_energy);
                 Kokkos::fence();
 
