@@ -157,18 +157,23 @@ void streaming_with_boundaries_mpi_strips(
 }
 
 KOKKOS_INLINE_FUNCTION
-void main_kernel_interior(const Distribution_t &f, const Distribution_t &f_new,
-    const int local_x, const int local_y, const float omega) {
+void main_kernel_interior(const Distribution_t_flat &f, const Distribution_t_flat &f_new,
+    const int local_x, const int local_y, const int tile_width, const int tile_height, const float omega) {
+    // indexing
+    const int width_with_halos = tile_width + 2;
+    const int offset = width_with_halos * (tile_height + 2);
+    const int base = local_x + width_with_halos * local_y;
+
     // pull
-    const float f_0 = f(local_x, local_y, 0);
-    const float f_1 = f(local_x - 1, local_y, 1);
-    const float f_2 = f(local_x, local_y - 1, 2);
-    const float f_3 = f(local_x + 1, local_y, 3);
-    const float f_4 = f(local_x, local_y + 1, 4);
-    const float f_5 = f(local_x - 1, local_y - 1, 5);
-    const float f_6 = f(local_x + 1, local_y - 1, 6);
-    const float f_7 = f(local_x + 1, local_y + 1, 7);
-    const float f_8 = f(local_x - 1, local_y + 1, 8);
+    const float f_0 = f(base);
+    const float f_1 = f(base - 1 + offset);
+    const float f_2 = f(base - width_with_halos + 2 * offset);
+    const float f_3 = f(base + 1 + 3 * offset);
+    const float f_4 = f(base + width_with_halos + 4 * offset);
+    const float f_5 = f(base - 1 - width_with_halos + 5 * offset);
+    const float f_6 = f(base + 1 - width_with_halos + 6 * offset);
+    const float f_7 = f(base + 1 + width_with_halos + 7 * offset);
+    const float f_8 = f(base - 1 + width_with_halos + 8 * offset);
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
@@ -196,23 +201,25 @@ void main_kernel_interior(const Distribution_t &f, const Distribution_t &f_new,
 
     const float one_minus_omega = 1.0f - omega;
 
-    f_new(local_x, local_y, 0) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
-    f_new(local_x, local_y, 1) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 2) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 3) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 4) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 5) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 6) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 7) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 8) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
+    f_new(base) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
+    f_new(base + offset) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
+    f_new(base + 2 * offset) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
+    f_new(base + 3 * offset) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
+    f_new(base + 4 * offset) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
+    f_new(base + 5 * offset) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
+    f_new(base + 6 * offset) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
+    f_new(base + 7 * offset) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
+    f_new(base + 8 * offset) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
 }
 
 KOKKOS_INLINE_FUNCTION
-float pull_or_collide_single_tile(const Distribution_t &f,
+float pull_or_collide_single_tile(const Distribution_t_flat &f,
     const Kokkos::Array<int, 2> &boundary_conditions,
     const Kokkos::Array<float, 4> &boundary_values,
     const int local_x, const int local_y, const int global_x, const int global_y,
-    const int grid_width, const int grid_height, const int i, const int c_x_i, const int c_y_i,
+    const int grid_width, const int grid_height,
+    const int base, const int width_with_halos, const int offset,
+    const int i, const int c_x_i, const int c_y_i,
     const int opposite_i, const float w_i) {
 
     const int rank_x_source = local_x - c_x_i;
@@ -245,36 +252,41 @@ float pull_or_collide_single_tile(const Distribution_t &f,
             v_y_wall = wall_speed;
         }
 
-        return f(local_x, local_y, opposite_i)
+        return f(base + opposite_i * offset)
             + calculate_correction_term(w_i, 1.0f,
                 c_x_i, c_y_i, v_x_wall , v_y_wall);
     }
 
-    return f(rank_x_source, rank_y_source, i);
+    const int source_base = rank_x_source + width_with_halos * rank_y_source;
+    return f(source_base + i * offset);
 }
 
 
 
 KOKKOS_INLINE_FUNCTION
-void main_kernel_boundary(const Distribution_t &f, const Distribution_t &f_new,
+void main_kernel_boundary(const Distribution_t_flat &f, const Distribution_t_flat &f_new,
     const Kokkos::Array<int, 2> &boundary_conditions,
     const Kokkos::Array<float, 4> &boundary_values,
     const int local_x, const int local_y, const int x_offset, const int y_offset,
-    const int grid_width, const int grid_height, const float omega) {
+    const int grid_width, const int grid_height, const int tile_width, const int tile_height, const float omega) {
+    // indexing
+    const int width_with_halos = tile_width + 2;
+    const int offset = width_with_halos * (tile_height + 2);
+    const int base = local_x + width_with_halos * local_y;
 
     // pull or collide
     const int global_x = local_x + x_offset - 1;
     const int global_y = local_y + y_offset - 1;
 
-    const float f_0 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 0, 0, 0, 0, 4.0f / 9.0f);
-    const float f_1 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 1, 1, 0, 3, 1.0f / 9.0f);
-    const float f_2 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 2, 0, 1, 4, 1.0f / 9.0f);
-    const float f_3 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 3, -1, 0, 1, 1.0f / 9.0f);
-    const float f_4 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 4, 0, -1, 2, 1.0f / 9.0f);
-    const float f_5 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 5, 1, 1, 7, 1.0f / 36.0f);
-    const float f_6 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 6, -1, 1, 8, 1.0f / 36.0f);
-    const float f_7 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 7, -1, -1, 5, 1.0f / 36.0f);
-    const float f_8 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, 8, 1, -1, 6, 1.0f / 36.0f);
+    const float f_0 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 0, 0, 0, 0, 4.0f / 9.0f);
+    const float f_1 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 1, 1, 0, 3, 1.0f / 9.0f);
+    const float f_2 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 2, 0, 1, 4, 1.0f / 9.0f);
+    const float f_3 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 3, -1, 0, 1, 1.0f / 9.0f);
+    const float f_4 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 4, 0, -1, 2, 1.0f / 9.0f);
+    const float f_5 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 5, 1, 1, 7, 1.0f / 36.0f);
+    const float f_6 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 6, -1, 1, 8, 1.0f / 36.0f);
+    const float f_7 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 7, -1, -1, 5, 1.0f / 36.0f);
+    const float f_8 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 8, 1, -1, 6, 1.0f / 36.0f);
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
@@ -302,15 +314,15 @@ void main_kernel_boundary(const Distribution_t &f, const Distribution_t &f_new,
 
     const float one_minus_omega = 1.0f - omega;
 
-    f_new(local_x, local_y, 0) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
-    f_new(local_x, local_y, 1) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 2) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 3) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 4) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 5) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 6) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 7) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
-    f_new(local_x, local_y, 8) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
+    f_new(base) = one_minus_omega * f_0 + omega * w_0 * rho * one_minus_u_sq_1_5;
+    f_new(base + offset) = one_minus_omega * f_1 + omega * w_1_4 * rho * (c_u_3_1 + 0.5f * c_u_3_1 * c_u_3_1 + one_minus_u_sq_1_5);
+    f_new(base + 2 * offset) = one_minus_omega * f_2 + omega * w_1_4 * rho * (c_u_3_2 + 0.5f * c_u_3_2 * c_u_3_2 + one_minus_u_sq_1_5);
+    f_new(base + 3 * offset) = one_minus_omega * f_3 + omega * w_1_4 * rho * (c_u_3_3 + 0.5f * c_u_3_3 * c_u_3_3 + one_minus_u_sq_1_5);
+    f_new(base + 4 * offset) = one_minus_omega * f_4 + omega * w_1_4 * rho * (c_u_3_4 + 0.5f * c_u_3_4 * c_u_3_4 + one_minus_u_sq_1_5);
+    f_new(base + 5 * offset) = one_minus_omega * f_5 + omega * w_5_8 * rho * (c_u_3_5 + 0.5f * c_u_3_5 * c_u_3_5 + one_minus_u_sq_1_5);
+    f_new(base + 6 * offset) = one_minus_omega * f_6 + omega * w_5_8 * rho * (c_u_3_6 + 0.5f * c_u_3_6 * c_u_3_6 + one_minus_u_sq_1_5);
+    f_new(base + 7 * offset) = one_minus_omega * f_7 + omega * w_5_8 * rho * (c_u_3_7 + 0.5f * c_u_3_7 * c_u_3_7 + one_minus_u_sq_1_5);
+    f_new(base + 8 * offset) = one_minus_omega * f_8 + omega * w_5_8 * rho * (c_u_3_8 + 0.5f * c_u_3_8 * c_u_3_8 + one_minus_u_sq_1_5);
 }
 
 KOKKOS_INLINE_FUNCTION

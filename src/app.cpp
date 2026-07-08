@@ -170,8 +170,8 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-        int grid_width = 128;
-        int grid_height = 128;
+        int grid_width = 4096;
+        int grid_height = 4096;
         int base_strip_width = grid_width / size;
         int remainder = grid_width % size;
 
@@ -274,14 +274,14 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
                 Kokkos::parallel_reduce("sum of kinetic energies",
                     Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    sum += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
+                    sum += 0.5 * rho(x, y) * (v_x(x, y) + v_x(x, y)) * (v_y(x, y) + v_y(x, y));
                 },local_kinetic_energy);
                 Kokkos::fence();
 
                 MPI_Reduce(&local_mass, &global_mass, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
                 MPI_Reduce(&local_kinetic_energy, &global_kinetic_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
                 if (rank == 0) {
-                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
+                    std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
         }
@@ -327,8 +327,12 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         MPI_Comm_rank(cart, &rank);
         MPI_Cart_coords(cart, rank, 2, coords);
 
-        int grid_width = 4096;
-        int grid_height = 4096;
+        if (rank == 0) {
+            Kokkos::print_configuration(std::cout);
+        }
+
+        int grid_width = 30000;
+        int grid_height = 30000;
         int base_tile_width = grid_width / dims[0];
         int base_tile_height = grid_height / dims[1];
         int remainder_x = grid_width % dims[0];
@@ -376,8 +380,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         Kokkos::Array<int, 3> move_down_dirs = {4,7,8};
 
         // Main view initializations -------------------------------------------
-        Distribution_t f("f", tile_width + 2, tile_height + 2, 9);
-        Distribution_t f_new("f_new", tile_width + 2, tile_height + 2, 9);
+        Distribution_t_flat f("f", (tile_width + 2) * (tile_height + 2) * 9);
+        Distribution_t_flat f_new("f_new", (tile_width + 2) * (tile_height + 2) * 9);
 
         // Grid initialization -------------------------------------------------
         Kokkos::parallel_for("grid initialization",
@@ -387,7 +391,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     constexpr float u_y = 0.0f;
                     constexpr float u_x = 0.0f;
                     constexpr float rho = 1.0f;
-                    f(x, y, i) = eq::calculate_eq_distrib(
+                    const int idx = x + (tile_width + 2) * (y + (tile_height + 2) * i);
+                    f(idx) = eq::calculate_eq_distrib(
                     rho, u_x, u_y,
                     c_x(i), c_y(i), w(i));
             }
@@ -417,7 +422,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 Kokkos::MDRangePolicy<Left_Policy>({2,2}, {tile_width, tile_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
 
-                eq::main_kernel_interior(f, f_new, x, y, 1.7f);
+                eq::main_kernel_interior(f, f_new, x, y, tile_width, tile_height, 1.7f);
             });
 
             Kokkos::parallel_for("branching boundary update",
@@ -439,7 +444,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 }
 
                 eq::main_kernel_boundary(f, f_new, boundary_conditions, boundary_values,
-                    x, y, x_offset, y_offset, grid_width, grid_height, 1.7f);
+                    x, y, x_offset, y_offset, grid_width, grid_height, tile_width, tile_height, 1.7f);
             });
 
             Kokkos::fence();
@@ -458,27 +463,40 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
             std::swap(f, f_new);
 
             if (step % state.measurement_interval == 0) {
+                const int width_with_halos = tile_width + 2;
+                const int offset = width_with_halos * (tile_height + 2);
+
                 Kokkos::parallel_reduce("sum of masses",
                     Kokkos::MDRangePolicy<Left_Policy>({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
+                    const int base = x + width_with_halos * y;
+
                     const float rho_cell =
-                        f(x,y,0) + f(x,y,1) + f(x,y,2) +
-                        f(x,y,3) + f(x,y,4) + f(x,y,5) +
-                        f(x,y,6) + f(x,y,7) + f(x,y,8);
+                        f(base) +
+                        f(base + offset) +
+                        f(base + 2 * offset) +
+                        f(base + 3 * offset) +
+                        f(base + 4 * offset) +
+                        f(base + 5 * offset) +
+                        f(base + 6 * offset) +
+                        f(base + 7 * offset) +
+                        f(base + 8 * offset);
                     sum += rho_cell;
                 },local_mass);
                 Kokkos::parallel_reduce("sum of kinetic energies",
                     Kokkos::MDRangePolicy<Left_Policy>({1,1}, {tile_width+1, tile_height+1}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    const float f_0 = f(x,y,0);
-                    const float f_1 = f(x,y,1);
-                    const float f_2 = f(x,y,2);
-                    const float f_3 = f(x,y,3);
-                    const float f_4 = f(x,y,4);
-                    const float f_5 = f(x,y,5);
-                    const float f_6 = f(x,y,6);
-                    const float f_7 = f(x,y,7);
-                    const float f_8 = f(x,y,8);
+                    const int base = x + width_with_halos * y;
+
+                    const float f_0 = f(base);
+                    const float f_1 = f(base + offset);
+                    const float f_2 = f(base + 2 * offset);
+                    const float f_3 = f(base + 3 * offset);
+                    const float f_4 = f(base + 4 * offset);
+                    const float f_5 = f(base + 5 * offset);
+                    const float f_6 = f(base + 6 * offset);
+                    const float f_7 = f(base + 7 * offset);
+                    const float f_8 = f(base + 8 * offset);
 
                     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
                     const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) / rho;

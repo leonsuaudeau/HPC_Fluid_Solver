@@ -2,6 +2,7 @@
 #define HPC_FLUID_SOLVER_DEFINITIONS_H
 
 using Distribution_t = Kokkos::View<float***, Kokkos::LayoutLeft> ;
+using Distribution_t_flat = Kokkos::View<float*, Kokkos::LayoutLeft> ;
 using Velocity_t = Kokkos::View<float**>;
 using Density_t = Kokkos::View<float**>;
 using Grid_Mask = Kokkos::View<int**>;
