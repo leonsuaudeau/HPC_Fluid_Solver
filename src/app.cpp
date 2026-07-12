@@ -462,6 +462,8 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
 
             std::swap(f, f_new);
 
+            /*
+
             if (step % state.measurement_interval == 0) {
                 const int width_with_halos = tile_width + 2;
                 const int offset = width_with_halos * (tile_height + 2);
@@ -512,6 +514,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
+            */
         }
 
         double end_time = MPI_Wtime();

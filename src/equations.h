@@ -177,9 +177,9 @@ void main_kernel_interior(const Distribution_t_flat &f, const Distribution_t_fla
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
-    const float rho_inf = 1.0f / rho;
-    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inf;
-    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inf;
+    const float rho_inv = 1.0f / rho;
+    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inv;
+    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inv;
 
     // relaxation
     const float u_x_3 = u_x * 3.0f;
@@ -278,30 +278,30 @@ void main_kernel_boundary(const Distribution_t_flat &f, const Distribution_t_fla
     const int global_x = local_x + x_offset - 1;
     const int global_y = local_y + y_offset - 1;
 
-    const float f_0 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 0, 0, 0, 0, 4.0f / 9.0f);
-    const float f_1 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 1, 1, 0, 3, 1.0f / 9.0f);
-    const float f_2 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 2, 0, 1, 4, 1.0f / 9.0f);
-    const float f_3 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 3, -1, 0, 1, 1.0f / 9.0f);
-    const float f_4 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 4, 0, -1, 2, 1.0f / 9.0f);
-    const float f_5 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 5, 1, 1, 7, 1.0f / 36.0f);
-    const float f_6 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 6, -1, 1, 8, 1.0f / 36.0f);
-    const float f_7 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 7, -1, -1, 5, 1.0f / 36.0f);
-    const float f_8 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 8, 1, -1, 6, 1.0f / 36.0f);
+    constexpr float w_0 = 4.0 / 9.0f;
+    constexpr float w_1_4 = 1.0f / 9.0f;
+    constexpr float w_5_8 = 1.0f / 36.0f;
+
+    const float f_0 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 0, 0, 0, 0, w_0);
+    const float f_1 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 1, 1, 0, 3, w_1_4);
+    const float f_2 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 2, 0, 1, 4, w_1_4);
+    const float f_3 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 3, -1, 0, 1, w_1_4);
+    const float f_4 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 4, 0, -1, 2, w_1_4);
+    const float f_5 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 5, 1, 1, 7, w_5_8);
+    const float f_6 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 6, -1, 1, 8, w_5_8);
+    const float f_7 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 7, -1, -1, 5, w_5_8);
+    const float f_8 = pull_or_collide_single_tile(f, boundary_conditions, boundary_values, local_x, local_y, global_x, global_y, grid_width, grid_height, base, width_with_halos, offset, 8, 1, -1, 6, w_5_8);
 
     // calculate rho and velocity locally
     const float rho = f_0 + f_1 + f_2 + f_3 + f_4 + f_5 + f_6 + f_7 + f_8;
-    const float rho_inf = 1.0f / rho;
-    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inf;
-    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inf;
+    const float rho_inv = 1.0f / rho;
+    const float u_x = (f_1 - f_3 + f_5 - f_6 - f_7 + f_8) * rho_inv;
+    const float u_y = (f_2 - f_4 + f_5 + f_6 - f_7 - f_8) * rho_inv;
 
     // relaxation
     const float u_x_3 = u_x * 3.0f;
     const float u_y_3 = u_y * 3.0f;
     const float one_minus_u_sq_1_5 = 1.0f - 1.5f * (u_x * u_x + u_y * u_y);
-
-    constexpr float w_0 = 4.0 / 9.0f;
-    constexpr float w_1_4 = 1.0f / 9.0f;
-    constexpr float w_5_8 = 1.0f / 36.0f;
 
     const float c_u_3_1 = u_x_3;
     const float c_u_3_2 = u_y_3;
