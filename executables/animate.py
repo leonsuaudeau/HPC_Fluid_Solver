@@ -5,8 +5,8 @@ import glob
 from enum import Enum
 
 def plot_single():
-    v_x =  np.fromfile("outputs/v_x.bin", dtype=np.float32).reshape((width, height))
-    v_y =  np.fromfile("outputs/v_y.bin", dtype=np.float32).reshape((width, height))
+    v_x =  np.fromfile("outputs/u_x.bin", dtype=np.float32).reshape((width, height))
+    v_y =  np.fromfile("outputs/u_y.bin", dtype=np.float32).reshape((width, height))
 
     plt.imshow(v_x)
     plt.colorbar()
@@ -92,8 +92,8 @@ if __name__ == "__main__":
     width, height = 128, 128
     frame_count = 50
     animation_type = AnimationType.magnitude
-    files_x = sorted(glob.glob("outputs/v_x_*.bin"))
-    files_y = sorted(glob.glob("outputs/v_y_*.bin"))
+    files_x = sorted(glob.glob("outputs/u_x_*.bin"))
+    files_y = sorted(glob.glob("outputs/u_y_*.bin"))
     frames_x = [np.fromfile(file, dtype=np.float32).reshape((height, width)) for file in files_x]
     frames_y = [np.fromfile(file, dtype=np.float32).reshape((height, width)) for file in files_y]
 

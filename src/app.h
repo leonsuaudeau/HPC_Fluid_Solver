@@ -2,6 +2,14 @@
 #define HPC_FLUID_SOLVER_APP_H
 #include "app_state.h"
 
+enum output_mode {
+    moving_lid_single,
+    moving_lid_animation,
+    shear_wave_over_time,
+    shear_wave_different_k,
+    validation,
+};
+
 class App {
 public:
     App();

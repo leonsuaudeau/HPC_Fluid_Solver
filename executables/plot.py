@@ -3,7 +3,7 @@ import numpy as np
 import glob
 
 
-def calculate_viscosity(filename):
+def calculate_viscosity(filename, height=128):
     seq = np.fromfile(filename, dtype=np.float32)
 
     # least linear squares fit
@@ -22,14 +22,14 @@ def calculate_viscosity(filename):
 
 
     m = (N * sum_ty - sum_t * sum_y) / (N * sum_tt - sum_t * sum_t)
-    k = 2 * np.pi / 64 # TODO: can this be made to automatically update?
+    k = 2 * np.pi / height
     return -m / (k * k)
 
 def plot_shear_wave_over_time():
     L = 128
     Y = np.arange(0, 1, 1/L)
 
-    files_x = sorted(glob.glob("outputs/shear_wave/over_time/v_x_*.bin"))
+    files_x = sorted(glob.glob("outputs/shear_wave/over_time/u_x_*.bin"))
     frames_x = [np.fromfile(file, dtype=np.float32).reshape((L, L)) for file in files_x]
 
     params = {'mathtext.default': 'regular' }
@@ -85,8 +85,8 @@ def plot_viscosity():
 
 def plot_magnitude():
     width, height = 128, 128
-    v_x = np.fromfile("outputs/moving_lid/v_x.bin", dtype=np.float32).reshape((width, height))
-    v_y = np.fromfile("outputs/moving_lid/v_y.bin", dtype=np.float32).reshape((width, height))
+    v_x = np.fromfile("outputs/moving_lid/u_x.bin", dtype=np.float32).reshape((width, height))
+    v_y = np.fromfile("outputs/moving_lid/u_y.bin", dtype=np.float32).reshape((width, height))
 
     fig, ax = plt.subplots()
     mag = np.sqrt(v_x**2 + v_y**2)
@@ -96,8 +96,8 @@ def plot_magnitude():
 
 def plot_stream():
     width, height = 128, 128
-    v_x = np.fromfile("outputs/moving_lid/v_x.bin", dtype=np.float32).reshape((width, height))
-    v_y = np.fromfile("outputs/moving_lid/v_y.bin", dtype=np.float32).reshape((width, height))
+    v_x = np.fromfile("outputs/moving_lid/u_x.bin", dtype=np.float32).reshape((width, height))
+    v_y = np.fromfile("outputs/moving_lid/u_y.bin", dtype=np.float32).reshape((width, height))
     mag = np.sqrt(v_x**2 + v_y**2)
 
     x, y = np.meshgrid(np.arange(0, 1, 1/height), np.arange(0, 1, 1/width))
@@ -114,4 +114,5 @@ def plot_stream():
 
 
 if __name__ == "__main__":
-    plot_viscosity()
+    plot_shear_wave_over_time()
+    # TODO: plot amplitude decaying for several k, very interesting

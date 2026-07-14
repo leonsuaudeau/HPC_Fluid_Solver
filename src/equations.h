@@ -23,7 +23,7 @@ void update_density(
 
 KOKKOS_INLINE_FUNCTION
 void update_velocity(
-    const Velocity_t &v_x, const Velocity_t &v_y,
+    const Velocity_t &u_x, const Velocity_t &u_y,
     const iVec &c_x, const iVec &c_y, const Density_t &rho,
     const Distribution_t &f, const int x, const int y) {
     float sum_x = 0.0f;
@@ -32,8 +32,8 @@ void update_velocity(
         sum_x += f(x, y, i) * c_x(i);
         sum_y += f(x, y, i) * c_y(i);
     }
-    v_x(x, y) = sum_x / rho(x, y);
-    v_y(x, y) = sum_y / rho(x, y);
+    u_x(x, y) = sum_x / rho(x, y);
+    u_y(x, y) = sum_y / rho(x, y);
 }
 
 KOKKOS_INLINE_FUNCTION
@@ -52,8 +52,8 @@ KOKKOS_INLINE_FUNCTION
 float calculate_correction_term(
     const float w_i, const  float rho_wall,
     const int c_x_i, const int c_y_i,
-    const float v_x_wall, const float v_y_wall) {
-    const float c_i_dot_u = c_x_i * v_x_wall + c_y_i * v_y_wall;
+    const float u_x_wall, const float u_y_wall) {
+    const float c_i_dot_u = static_cast<float>(c_x_i) * u_x_wall + static_cast<float>(c_y_i) * u_y_wall;
     return 6.0f * w_i * rho_wall * c_i_dot_u;
 }
 
@@ -64,8 +64,8 @@ void streaming_with_boundaries(
     const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
     const int x, const int y, const int grid_width, const int grid_height) {
     for (int i = 0; i < 9; i++) {
-        int x_source = x - c_x(i);
-        int y_source = y - c_y(i);
+        const int x_source = x - c_x(i);
+        const int y_source = y - c_y(i);
 
         int boundary = -1;
 
@@ -87,18 +87,18 @@ void streaming_with_boundaries(
         if (boundary >= 0 && boundary_conditions[boundary % 2] == 1) {
             const float wall_speed = boundary_values[boundary];
 
-            float v_x_wall = 0.0f;
-            float v_y_wall = 0.0f;
+            float u_x_wall = 0.0f;
+            float u_y_wall = 0.0f;
 
             if (boundary == 1 || boundary == 3) {
-                v_x_wall = wall_speed;
+                u_x_wall = wall_speed;
             }else {
-                v_y_wall = wall_speed;
+                u_y_wall = wall_speed;
             }
 
             f_new(x, y, i) = f(x, y, opposite_i(i)) + calculate_correction_term(
                 w(i), 1.0f, c_x(i), c_y(i),
-                v_x_wall , v_y_wall);
+                u_x_wall , u_y_wall);
         }
     }
 }
@@ -133,18 +133,18 @@ void streaming_with_boundaries_mpi_strips(
             // wall boundary
             const float wall_speed = boundary_values[boundary];
 
-            float v_x_wall = 0.0f;
-            float v_y_wall = 0.0f;
+            float u_x_wall = 0.0f;
+            float u_y_wall = 0.0f;
 
             if (boundary == 1 || boundary == 3) {
-                v_x_wall = wall_speed;
+                u_x_wall = wall_speed;
             }else {
-                v_y_wall = wall_speed;
+                u_y_wall = wall_speed;
             }
 
             f_new(local_x, y, i) = f(local_x, y, opposite_i(i)) + calculate_correction_term(
                 w(i), 1.0f, c_x(i), c_y(i),
-                v_x_wall , v_y_wall);
+                u_x_wall , u_y_wall);
         } else {
             // periodic or no boundary
             if (global_y_source < 0 || global_y_source >= grid_height) {
@@ -152,6 +152,57 @@ void streaming_with_boundaries_mpi_strips(
             }
 
             f_new(local_x, y, i) = f(rank_x_source, global_y_source, i);
+        }
+    }
+}
+
+KOKKOS_INLINE_FUNCTION
+void streaming_with_boundaries_mpi_tiles(
+    const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
+    const iVec &c_x, const iVec &c_y, const Kokkos::Array<int, 2> &boundary_conditions,
+    const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
+    const int local_x, const int local_y, const int x_offset, const int y_offset,
+    const int grid_width, const int grid_height) {
+
+    const int global_x = local_x + x_offset - 1;
+    const int global_y = local_y + y_offset - 1;
+
+    for (int i = 0; i < 9; i++) {
+        const int rank_x_source = local_x - c_x(i);
+        const int global_x_source = global_x - c_x(i);
+        const int rank_y_source = local_y - c_y(i);
+        const int global_y_source = global_y - c_y(i);
+
+        int boundary = -1;
+
+        if (global_x_source < 0) {
+            boundary = 0;
+        } else if (global_y_source < 0) {
+            boundary = 1;
+        } else if (global_x_source >= grid_width) {
+            boundary = 2;
+        } else if (global_y_source >= grid_height) {
+            boundary = 3;
+        }
+
+        if (boundary >= 0 && boundary_conditions[boundary % 2] == 1) {
+            // wall boundary
+            const float wall_speed = boundary_values[boundary];
+
+            float u_x_wall = 0.0f;
+            float u_y_wall = 0.0f;
+
+            if (boundary == 1 || boundary == 3) {
+                u_x_wall = wall_speed;
+            }else {
+                u_y_wall = wall_speed;
+            }
+
+            f_new(local_x, local_y, i) = f(local_x, local_y, opposite_i(i))
+                + calculate_correction_term(w(i), 1.0f,
+                    c_x(i), c_y(i), u_x_wall , u_y_wall);
+        } else {
+            f_new(local_x, local_y, i) = f(rank_x_source, rank_y_source, i);
         }
     }
 }
@@ -243,25 +294,23 @@ float pull_or_collide_single_tile(const Distribution_t_flat &f,
         // wall boundary
         const float wall_speed = boundary_values[boundary];
 
-        float v_x_wall = 0.0f;
-        float v_y_wall = 0.0f;
+        float u_x_wall = 0.0f;
+        float u_y_wall = 0.0f;
 
         if (boundary == 1 || boundary == 3) {
-            v_x_wall = wall_speed;
+            u_x_wall = wall_speed;
         }else {
-            v_y_wall = wall_speed;
+            u_y_wall = wall_speed;
         }
 
         return f(base + opposite_i * offset)
             + calculate_correction_term(w_i, 1.0f,
-                c_x_i, c_y_i, v_x_wall , v_y_wall);
+                c_x_i, c_y_i, u_x_wall , u_y_wall);
     }
 
     const int source_base = rank_x_source + width_with_halos * rank_y_source;
     return f(source_base + i * offset);
 }
-
-
 
 KOKKOS_INLINE_FUNCTION
 void main_kernel_boundary(const Distribution_t_flat &f, const Distribution_t_flat &f_new,
@@ -326,85 +375,35 @@ void main_kernel_boundary(const Distribution_t_flat &f, const Distribution_t_fla
 }
 
 KOKKOS_INLINE_FUNCTION
-void streaming_with_boundaries_mpi_tiles(
-    const Distribution_t &f, const Distribution_t &f_new, const Vec &w,
-    const iVec &c_x, const iVec &c_y, const Kokkos::Array<int, 2> &boundary_conditions,
-    const Kokkos::Array<float, 4> &boundary_values, const iVec &opposite_i,
-    const int local_x, const int local_y, const int x_offset, const int y_offset,
-    const int grid_width, const int grid_height) {
-
-    const int global_x = local_x + x_offset - 1;
-    const int global_y = local_y + y_offset - 1;
-
-    for (int i = 0; i < 9; i++) {
-        const int rank_x_source = local_x - c_x(i);
-        const int global_x_source = global_x - c_x(i);
-        const int rank_y_source = local_y - c_y(i);
-        const int global_y_source = global_y - c_y(i);
-
-        int boundary = -1;
-
-        if (global_x_source < 0) {
-            boundary = 0;
-        } else if (global_y_source < 0) {
-            boundary = 1;
-        } else if (global_x_source >= grid_width) {
-            boundary = 2;
-        } else if (global_y_source >= grid_height) {
-            boundary = 3;
-        }
-
-        if (boundary >= 0 && boundary_conditions[boundary % 2] == 1) {
-            // wall boundary
-            const float wall_speed = boundary_values[boundary];
-
-            float v_x_wall = 0.0f;
-            float v_y_wall = 0.0f;
-
-            if (boundary == 1 || boundary == 3) {
-                v_x_wall = wall_speed;
-            }else {
-                v_y_wall = wall_speed;
-            }
-
-            f_new(local_x, local_y, i) = f(local_x, local_y, opposite_i(i))
-                + calculate_correction_term(w(i), 1.0f,
-                    c_x(i), c_y(i), v_x_wall , v_y_wall);
-        } else {
-            f_new(local_x, local_y, i) = f(rank_x_source, rank_y_source, i);
-        }
-    }
-}
-
-KOKKOS_INLINE_FUNCTION
 float calculate_eq_distrib(
-    const float rho_cell, const float v_x_cell,
-    const float v_y_cell, const int c_x_i,
+    const float rho_cell, const float u_x_cell,
+    const float u_y_cell, const int c_x_i,
     const int c_y_i, const float w_i) {
-    const float c_i_dot_u = c_x_i * v_x_cell + c_y_i * v_y_cell;
-    const float norm_u_squared = v_x_cell * v_x_cell + v_y_cell * v_y_cell;
+    const float c_i_dot_u = c_x_i * u_x_cell + c_y_i * u_y_cell;
+    const float norm_u_squared = u_x_cell * u_x_cell + u_y_cell * u_y_cell;
     return w_i * rho_cell * (1 + 3 * c_i_dot_u + 4.5f * c_i_dot_u * c_i_dot_u - 1.5f * norm_u_squared);
 }
 
 KOKKOS_INLINE_FUNCTION
 void relaxation(
     const Distribution_t &f, const Density_t &rho,
-    const Velocity_t &v_x, const Velocity_t &v_y,
+    const Velocity_t &u_x, const Velocity_t &u_y,
     const iVec &c_x, const iVec &c_y, const Vec &w,
     const float omega, const int x, const int y) {
     for (int i = 0; i < 9; i++) {
-        f(x, y, i) += omega * (calculate_eq_distrib(rho(x, y), v_x(x, y), v_y(x, y), c_x(i), c_y(i), w(i)) - f(x, y, i));
+        f(x, y, i) += omega * (calculate_eq_distrib(rho(x, y), u_x(x, y), u_y(x, y), c_x(i), c_y(i), w(i)) - f(x, y, i));
     }
 }
 
-inline float sinusoidal(const int x, const float epsilon, const float k) {
+KOKKOS_INLINE_FUNCTION
+float sinusoidal(const int x, const float epsilon, const float k) {
     return epsilon * sinf(k * static_cast<float>(x));
 }
 
 KOKKOS_INLINE_FUNCTION
-float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, const float k) {
-    const int n_x = static_cast<int>(v_x.extent(0));
-    const int n_y = static_cast<int>(v_y.extent(1));
+float calculate_sin_amplitude(const Velocity_t &u_x, const Velocity_t &u_y, const float k) {
+    const int n_x = static_cast<int>(u_x.extent(0));
+    const int n_y = static_cast<int>(u_y.extent(1));
     const float n_x_inv = 1.0f / static_cast<float>(n_x);
     const float n_y_inv = 1.0f / static_cast<float>(n_y);
 
@@ -412,15 +411,15 @@ float calculate_sin_amplitude(const Velocity_t &v_x, const Velocity_t &v_y, cons
 
     for (int x = 0; x < n_x; x++) {
         for (int y = 0; y < n_y; y++) {
-            sum += v_x(x, y) * sinf(k * static_cast<float>(y));
+            sum += u_x(x, y) * sinf(k * static_cast<float>(y));
         }
     }
     return sum * n_x_inv * n_y_inv * 2.0f;
 }
 
-inline float calculate_reynolds_number(const Kokkos::Array<float, 4> &lid_vel, const int L, const float omega) {
+inline float calculate_reynolds_number(const Kokkos::Array<float, 4> &u_lid, const int L, const float omega) {
     const float nu = 1.0f/3.0f * (1.0f/omega - 1.0f/2.0f);
-    return std::max(std::max(lid_vel[0], lid_vel[1]), std::max(lid_vel[2], lid_vel[3])) * static_cast<float>(L) / nu;
+    return std::max(std::max(u_lid[0], u_lid[1]), std::max(u_lid[2], u_lid[3])) * static_cast<float>(L) / nu;
 }
 
 inline double blups(const int width, const int height, const int max_steps, const double walltime) {

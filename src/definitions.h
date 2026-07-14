@@ -4,6 +4,7 @@
 using Distribution_t = Kokkos::View<float***, Kokkos::LayoutLeft> ;
 using Distribution_t_flat = Kokkos::View<float*, Kokkos::LayoutLeft> ;
 using Velocity_t = Kokkos::View<float**>;
+using Velocity_t_host = Kokkos::View<float**, Kokkos::HostSpace>;
 using Density_t = Kokkos::View<float**>;
 using Grid_Mask = Kokkos::View<int**>;
 using iVec = Kokkos::View<int*>;

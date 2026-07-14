@@ -10,11 +10,111 @@
 
 App::App() = default;
 
+inline void run_single(Distribution_t &f, Distribution_t &f_new,
+    const Velocity_t& u_x, const Velocity_t &u_y, const Density_t &rho,
+    const iVec &c_x, const iVec &c_y, const Vec &w, const iVec &opposite_i,
+    const Kokkos::Array<int, 2> &boundary_conditions,
+    const Kokkos::Array<float, 4> &boundary_values,
+    const Vec_host &amplitude_measurements, const float omega, int width, int height,
+    AppState &state, const output_mode mode) {
+
+    // Grid initializations
+    const float n_y_inv = 1.0f / static_cast<float>(height);
+    const float k = 2.0f * 3.14159265359f * n_y_inv;
+    Kokkos::parallel_for("grid initialization",
+        Kokkos::MDRangePolicy<Left_Policy>({0, 0}, {width, height}),
+        KOKKOS_LAMBDA(const int x, const int y) {
+
+        u_x(x, y) = (mode == shear_wave_over_time || mode == shear_wave_different_k) ? eq::sinusoidal(y, 0.1f, k) : 0.0f;
+        u_y(x, y) = 0.0f;
+        rho(x, y) = 1.0f;
+
+        for (int i = 0; i < 9; i++) {
+            f(x, y, i) = eq::calculate_eq_distrib(
+                rho(x, y), u_x(x, y), u_y(x, y),
+                c_x(i), c_y(i),w(i));
+        }
+    });
+
+    double global_mass = 0.0f;
+    double global_kinetic_energy = 0.0f;
+
+    if (mode == moving_lid_single || mode == moving_lid_animation) {
+        std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
+    }
+
+    while (state.timestep < state.max_steps) {
+        // Simulation step
+        Kokkos::parallel_for("one-step pull scheme step",
+            Kokkos::MDRangePolicy({0,0}, {width, height}),
+            KOKKOS_LAMBDA(const int x, const int y) {
+            eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
+            eq::update_density(rho, f_new, x, y);
+            eq::update_velocity(u_x, u_y, c_x, c_y, rho, f_new, x, y);
+            eq::relaxation(f_new, rho, u_x, u_y, c_x, c_y, w, omega, x, y);
+        });
+        std::swap(f, f_new);
+
+        if (mode == validation) { // print measured mass and kinetic energy
+            if (state.timestep % state.measurement_interval == 0) {
+                Kokkos::parallel_reduce("sum of masses",
+                    Kokkos::MDRangePolicy({0,0}, {width, height}),
+                    KOKKOS_LAMBDA(const int x, const int y, double& local_mass) {
+                    local_mass += rho(x, y);
+                },
+                global_mass);
+
+                Kokkos::parallel_reduce("sum of kinetic energies",
+                    Kokkos::MDRangePolicy({0,0}, {width, height}),
+                    KOKKOS_LAMBDA(const int x, const int y, double& local_energy) {
+                    local_energy += 0.5 * rho(x, y) * (u_x(x, y) * u_x(x, y) + u_y(x, y) * u_y(x, y));
+                },
+                global_kinetic_energy);
+
+                std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
+            }
+        }
+
+        if (mode == shear_wave_different_k) { // add current sin amplitude to measurements
+            float amplitude_sum = 0.0f;
+            Kokkos::parallel_reduce("sin amplitude",
+                Kokkos::MDRangePolicy({0, 0}, {width, height}),
+                KOKKOS_LAMBDA(const int x, const int y, float& local_sum) {
+                local_sum += u_x(x, y) * sinf(k * static_cast<float>(y));},amplitude_sum);
+
+            amplitude_measurements(state.timestep) =
+                amplitude_sum * (1.0f / static_cast<float>(width)) *
+                    (1.0f / static_cast<float>(height)) * 2.0f;
+        }
+
+        if (mode == moving_lid_animation || mode == shear_wave_over_time) { // output velocities for visualization continuously
+            if (state.timestep % state.draw_steps == 0) {
+                auto u_x_host = Kokkos::create_mirror_view(u_x);
+                auto u_y_host = Kokkos::create_mirror_view(u_y);
+                Kokkos::deep_copy(u_x_host, u_x);
+                Kokkos::deep_copy(u_y_host, u_y);
+
+                int frame = state.timestep / state.draw_steps;
+
+                if (mode == moving_lid_animation) {
+                    out::write_to("u_x", u_x_host, width, height, frame);
+                    out::write_to("u_y", u_y_host, width, height, frame);
+                }else {
+                    out::write_to("shear_wave/over_time/u_x", u_x_host, width, height, frame);
+                }
+
+                std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
+            }
+        }
+        state.timestep++;
+    }
+}
+
 int App::run(int argc, char *argv[]) {
     Kokkos::initialize(argc, argv);
     {
-        int width = 64;
-        int height = 64;
+        int width = 128;
+        int height = 128;
         float omega = 1.7f;
 
         iVec c_x("c_x", 9);
@@ -27,128 +127,50 @@ int App::run(int argc, char *argv[]) {
         auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
 
         Density_t rho("rho", width, height);
-        Velocity_t v_x("v_x", width, height);
-        Velocity_t v_y("v_dty", width, height);
+        Velocity_t u_x("u_x", width, height);
+        Velocity_t u_y("u_y", width, height);
         Distribution_t f("f", width, height, 9);
         Distribution_t f_new("f_new", width, height, 9);
 
-        Kokkos::Array<int, 2> boundary_conditions = {0, 0}; // (horizontal, vertical) 0 = periodic, 1 = wall
-        Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.1f}; // speed of wall, ignored if it isn't a wall
-        // TODO: fix corners, use 2 vel. values per wall for this!
+        Vec_host amplitude_measurements("m", state.max_steps);
 
-        auto rho_host = Kokkos::create_mirror_view(rho);
-        auto v_x_host = Kokkos::create_mirror_view(v_x);
-        auto v_y_host = Kokkos::create_mirror_view(v_y);
-        auto f_host = Kokkos::create_mirror_view(f);
+        constexpr output_mode mode = shear_wave_over_time;
 
-        Vec_host measurements_host("m", state.max_steps);
+        if constexpr (mode == shear_wave_different_k) {
+            for (int i = 1; i < 100; i++) {
+                omega = static_cast<float>(i) / 50.0f;
+                std::cout << "Omega: " << omega << std::endl;
+                Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.0f};
+                Kokkos::Array<int, 2> boundary_conditions = {0, 0}; // periodic everywhere
 
-        for (int i = 1; i < 100; i++) {
-            omega = static_cast<float>(i) / 50.0f;
-            std::cout << "Omega: " << omega << std::endl;
+                run_single(f, f_new, u_x, u_y, rho, c_x, c_y, w, opposite_i, boundary_conditions, boundary_values, amplitude_measurements, omega, width, height, state, mode);
 
-            // Grid initializations
-            float n_y_inv = 1.0f / static_cast<float>(height);
-            float k = 2.0f * 3.14159265359f * n_y_inv;
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
-                    rho_host(x, y) = 1.0f;
-                    v_x_host(x, y) = eq::sinusoidal(y, 0.1f, k);
-                    v_y_host(x, y) = 0.0f;
+                state.timestep = 0;
 
-                    for (int i = 0; i < 9; i++) {
-                        f_host(x, y, i) = eq::calculate_eq_distrib(
-                            rho_host(x, y),
-                            v_x_host(x, y), v_y_host(x, y),
-                            c_x_host(i), c_y_host(i),
-                            w_host(i));
-                    }
+                if constexpr (mode == shear_wave_different_k) {
+                    std::ostringstream filename;
+                    filename << "shear_wave/different_k/amplitude_" << std::setw(3) << std::setfill('0') << std::to_string(i);
+                    out::write_to(filename.str(), amplitude_measurements);
                 }
             }
-
-            Kokkos::deep_copy(rho, rho_host);
-            Kokkos::deep_copy(v_x, v_x_host);
-            Kokkos::deep_copy(v_y, v_y_host);
-            Kokkos::deep_copy(f, f_host);
-
-            double global_mass = 0.0f;
-            double global_kinetic_energy = 0.0f;
-
-            std::cout << "Reynolds number: " << eq::calculate_reynolds_number(boundary_values, width, omega) << std::endl;
-
-            while (state.timestep < state.max_steps) {
-                // Simulation step
-                Kokkos::parallel_for("one-step pull scheme step",
-                    Kokkos::MDRangePolicy({0,0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y) {
-                    eq::streaming_with_boundaries(f, f_new, w, c_x, c_y, boundary_conditions,boundary_values, opposite_i, x, y, width, height);
-                    eq::update_density(rho, f_new, x, y);
-                    eq::update_velocity(v_x, v_y, c_x, c_y, rho, f_new, x, y);
-                    eq::relaxation(f_new, rho, v_x, v_y, c_x, c_y, w, omega, x, y);
-                });
-                std::swap(f, f_new);
-
-                // Now measure some values for testing
-                if (state.timestep % state.measurement_interval == 0) {
-                    Kokkos::parallel_reduce("sum of masses",
-                        Kokkos::MDRangePolicy({0,0}, {width, height}),
-                        KOKKOS_LAMBDA(const int x, const int y, double& local_mass) {
-                        local_mass += rho(x, y);
-                    },
-                    global_mass);
-
-                    Kokkos::parallel_reduce("sum of kinetic energies",
-                        Kokkos::MDRangePolicy({0,0}, {width, height}),
-                        KOKKOS_LAMBDA(const int x, const int y, double& local_energy) {
-                        local_energy += 0.5 * rho(x, y) * v_x(x, y) * v_x(x, y) * v_y(x, y) * v_y(x, y);
-                    },
-                    global_kinetic_energy);
-
-                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
-                }
-
-                float amplitude_sum = 0.0f;
-                Kokkos::parallel_reduce("sin amplitude",
-                    Kokkos::MDRangePolicy({0, 0}, {width, height}),
-                    KOKKOS_LAMBDA(const int x, const int y, float& local_sum) {
-                    local_sum += v_x(x, y) * sinf(k * static_cast<float>(y));},amplitude_sum);
-
-                measurements_host(state.timestep) =
-                    amplitude_sum * (1.0f / static_cast<float>(width)) *
-                        (1.0f / static_cast<float>(height)) * 2.0f;
-
-                /*
-                if (state.timestep % state.draw_steps == 0) {
-                    Kokkos::deep_copy(v_x_host, v_x);
-                    Kokkos::deep_copy(v_y_host, v_y);
-
-                    int frame = state.timestep / state.draw_steps;
-                    out::write_to("v_x", v_x_host, width, height, frame);
-                    out::write_to("v_y", v_y_host, width, height, frame);
-
-                    std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
-                }
-                */
-                state.timestep++;
+        }else {
+            Kokkos::Array<float, 4> boundary_values = {0.0f, 0.0f, 0.0f, 0.1f};
+            Kokkos::Array<int, 2> boundary_conditions = {1, 1}; // walls everywhere
+            if constexpr (mode == shear_wave_over_time) {
+                boundary_conditions = {0, 0};
             }
-            state.timestep = 0;
-            std::ostringstream filename;
-            filename << "shear_wave/different_k/amplitude_" << std::setw(3) << std::setfill('0') << std::to_string(i);
-            out::write_to(filename.str(), measurements_host);
+            run_single(f, f_new, u_x, u_y,  rho, c_x, c_y, w, opposite_i, boundary_conditions, boundary_values, amplitude_measurements, omega, width, height, state, mode);
         }
 
-        // For moving lid plotting, comment out the other exports and uncomment this
-        // You should plot different raynolds numbers, grid sizes, etc.
-        /*
+        if constexpr (mode == moving_lid_single) { // write a single time at the end
+            auto u_x_host = Kokkos::create_mirror_view(u_x);
+            auto u_y_host = Kokkos::create_mirror_view(u_y);
+            Kokkos::deep_copy(u_x_host, u_x);
+            Kokkos::deep_copy(u_y_host, u_y);
 
-        Kokkos::deep_copy(v_y_host, v_y);
-
-        out::write_to("moving_lid/v_x", v_x_host, width, height);
-        out::write_to("moving_lid/v_y", v_y_host, width, height);
-
-        std::cout << "Timestep " << state.timestep << "/" << state.max_steps << std::endl;
-        */
-        //out::write_to("shear_wave/amplitude", measurements_host);
+            out::write_to("moving_lid/u_x", u_x_host, width, height);
+            out::write_to("moving_lid/u_y", u_y_host, width, height);
+        }
     }
 
     Kokkos::finalize();
@@ -274,7 +296,7 @@ int App::run_mpi_strips(int argc, char *argv[]) const {
                 Kokkos::parallel_reduce("sum of kinetic energies",
                     Kokkos::MDRangePolicy({1,0}, {strip_width+1, grid_height}),
                     KOKKOS_LAMBDA(const int x, const int y, double& sum) {
-                    sum += 0.5 * rho(x, y) * (v_x(x, y) + v_x(x, y)) * (v_y(x, y) + v_y(x, y));
+                    sum += 0.5 * rho(x, y) * (v_x(x, y) * v_x(x, y) + v_y(x, y) * v_y(x, y));
                 },local_kinetic_energy);
                 Kokkos::fence();
 
@@ -331,8 +353,10 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
             Kokkos::print_configuration(std::cout);
         }
 
-        int grid_width = 30000;
-        int grid_height = 30000;
+        constexpr int grid_width = 30000;
+        constexpr int grid_height = 30000;
+        constexpr float omega = 1.7f;
+
         int base_tile_width = grid_width / dims[0];
         int base_tile_height = grid_height / dims[1];
         int remainder_x = grid_width % dims[0];
@@ -374,11 +398,6 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
         auto w_host = d2q9::w_host_init(w);
         auto opposite_i_host = d2q9::opposite_i_host_init(opposite_i);
 
-        Kokkos::Array<int, 3> move_left_dirs = {3,6,7};
-        Kokkos::Array<int, 3> move_right_dirs = {1,5,8};
-        Kokkos::Array<int, 3> move_up_dirs = {2,5,6};
-        Kokkos::Array<int, 3> move_down_dirs = {4,7,8};
-
         // Main view initializations -------------------------------------------
         Distribution_t_flat f("f", (tile_width + 2) * (tile_height + 2) * 9);
         Distribution_t_flat f_new("f_new", (tile_width + 2) * (tile_height + 2) * 9);
@@ -393,22 +412,18 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     constexpr float rho = 1.0f;
                     const int idx = x + (tile_width + 2) * (y + (tile_height + 2) * i);
                     f(idx) = eq::calculate_eq_distrib(
-                    rho, u_x, u_y,
-                    c_x(i), c_y(i), w(i));
+                        rho, u_x, u_y,
+                        c_x(i), c_y(i), w(i));
             }
         });
         Kokkos::fence();
         // 2-pass exchange, first horizontal, then vertical including ghost corners
-        dom::exchange_halos_tiles_x_pass(f, cart,
-            send_buffer_left, send_buffer_right,
-            receive_buffer_left, receive_buffer_right,
-            left, right, tile_width, tile_height,
-            halo_size, move_left_dirs, move_right_dirs);
-        dom::exchange_halos_tiles_y_pass(f, cart,
-            send_buffer_up, send_buffer_down,
-            receive_buffer_up, receive_buffer_down,
-            up, down, tile_width, tile_height,
-            halo_size, move_up_dirs, move_down_dirs);
+        dom::exchange_halos_tiles_x_pass(
+            f, cart, send_buffer_left, send_buffer_right, receive_buffer_left,
+            receive_buffer_right, left, right, tile_width, tile_height, halo_size);
+        dom::exchange_halos_tiles_y_pass(
+            f, cart, send_buffer_up, send_buffer_down, receive_buffer_up,
+            receive_buffer_down, up, down, tile_width, tile_height, halo_size);
 
         const int boundary_count = 2 * tile_width + 2 * (tile_height - 2);
 
@@ -422,7 +437,7 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 Kokkos::MDRangePolicy<Left_Policy>({2,2}, {tile_width, tile_height}),
                 KOKKOS_LAMBDA(const int x, const int y) {
 
-                eq::main_kernel_interior(f, f_new, x, y, tile_width, tile_height, 1.7f);
+                eq::main_kernel_interior(f, f_new, x, y, tile_width, tile_height, omega);
             });
 
             Kokkos::parallel_for("branching boundary update",
@@ -444,25 +459,19 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                 }
 
                 eq::main_kernel_boundary(f, f_new, boundary_conditions, boundary_values,
-                    x, y, x_offset, y_offset, grid_width, grid_height, tile_width, tile_height, 1.7f);
+                    x, y, x_offset, y_offset, grid_width, grid_height, tile_width, tile_height, omega);
             });
 
             Kokkos::fence();
 
-            dom::exchange_halos_tiles_x_pass(f_new, cart,
-                send_buffer_left, send_buffer_right,
-                receive_buffer_left, receive_buffer_right,
-                left, right, tile_width, tile_height,
-                halo_size, move_left_dirs, move_right_dirs);
-            dom::exchange_halos_tiles_y_pass(f_new, cart,
-                send_buffer_up, send_buffer_down,
-                receive_buffer_up, receive_buffer_down,
-                up, down, tile_width, tile_height,
-                halo_size, move_up_dirs, move_down_dirs);
+            dom::exchange_halos_tiles_x_pass(
+                f_new, cart, send_buffer_left, send_buffer_right, receive_buffer_left,
+                receive_buffer_right, left, right, tile_width, tile_height, halo_size);
+            dom::exchange_halos_tiles_y_pass(
+                f_new, cart, send_buffer_up, send_buffer_down, receive_buffer_up,
+                receive_buffer_down, up, down, tile_width, tile_height, halo_size);
 
             std::swap(f, f_new);
-
-            /*
 
             if (step % state.measurement_interval == 0) {
                 const int width_with_halos = tile_width + 2;
@@ -514,7 +523,6 @@ int App::run_mpi_tiles(int argc, char *argv[]) const {
                     std::cout << "Timestep " << step << "/" << state.max_steps << " | Mass: " << global_mass << " | Kinetic Energy: " << global_kinetic_energy << std::endl;
                 }
             }
-            */
         }
 
         double end_time = MPI_Wtime();

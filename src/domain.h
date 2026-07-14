@@ -3,7 +3,6 @@
 
 #include <Kokkos_Core.hpp>
 #include "definitions.h"
-
 #include <mpi.h>
 
 namespace dom {
@@ -48,11 +47,12 @@ inline void exchange_halos_vert_strips(const Distribution_t &f,
     });
 }
 
-inline void exchange_halos_tiles_x_pass(const Distribution_t_flat &f, const MPI_Comm &cart,
+inline void exchange_halos_tiles_x_pass(
+    const Distribution_t_flat &f, const MPI_Comm &cart,
     const Vec &send_buffer_left, const Vec &send_buffer_right,
     const Vec &receive_buffer_left, const Vec &receive_buffer_right,
-    const int left, const int right, const int tile_width, const int tile_height,
-    const int halo_size[2], const Kokkos::Array<int, 3> &move_left_dirs, const Kokkos::Array<int, 3> &move_right_dirs) {
+    const int left, const int right, const int tile_width,
+    const int tile_height, const int halo_size[]) {
 
     const int width_with_halos = tile_width + 2;
     const int offset = width_with_halos * (tile_height + 2);
@@ -119,11 +119,12 @@ inline void exchange_halos_tiles_x_pass(const Distribution_t_flat &f, const MPI_
     });
 }
 
-inline void exchange_halos_tiles_y_pass(const Distribution_t_flat &f, const MPI_Comm &cart,
+inline void exchange_halos_tiles_y_pass(
+    const Distribution_t_flat &f, const MPI_Comm &cart,
     const Vec &send_buffer_up, const Vec &send_buffer_down,
-    const Vec &receive_buffer_up, const Vec &receive_buffer_down,
-    const int up, const int down, const int tile_width, const int tile_height,
-    const int halo_size[2], const Kokkos::Array<int, 3> &move_up_dirs, const Kokkos::Array<int, 3> &move_down_dirs) {
+    const Vec &receive_buffer_up, const Vec &receive_buffer_down, const int up,
+    const int down, const int tile_width, const int tile_height,
+    const int halo_size[]) {
 
     const int width_with_halos = tile_width + 2;
     const int offset = width_with_halos * (tile_height + 2);
